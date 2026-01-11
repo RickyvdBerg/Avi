@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:compositor_dart/compositor_dart.dart';
 import 'package:dahlia_shared/dahlia_shared.dart';
 import 'package:utopia_wm/wm.dart';
 
@@ -7,6 +10,16 @@ class WindowManagerServiceFactory extends ServiceFactory<WindowManagerService> {
   @override
   WindowManagerService build() {
     return _WindowManagerServiceImpl();
+  }
+}
+
+class CompositorWindowServiceFactory
+    extends ServiceFactory<CompositorWindowService> {
+  const CompositorWindowServiceFactory();
+
+  @override
+  CompositorWindowService build() {
+    return _CompositorWindowServiceImpl();
   }
 }
 
@@ -84,5 +97,182 @@ class _WindowManagerServiceImpl extends WindowManagerService {
     }
 
     _minimizedCache.clear();
+  }
+}
+
+class CompositorWindowEntry {
+  final Surface surface;
+  final String title;
+  final String? appId;
+  final bool minimized;
+  final bool maximized;
+  final bool active;
+
+  const CompositorWindowEntry({
+    required this.surface,
+    required this.title,
+    required this.appId,
+    required this.minimized,
+    required this.maximized,
+    required this.active,
+  });
+}
+
+abstract class CompositorWindowService extends ListenableService {
+  static CompositorWindowService get current {
+    return ServiceManager.getService<CompositorWindowService>()!;
+  }
+
+  List<CompositorWindowEntry> get windows;
+  bool isMinimized(int handle);
+  bool isMaximized(int handle);
+  int? get activeHandle;
+
+  void setActive(int handle);
+  void toggleMinimize(int handle);
+  Future<void> toggleMaximize(Surface surface, bool maximized);
+  Future<void> close(Surface surface);
+}
+
+class _CompositorWindowServiceImpl extends CompositorWindowService {
+  final Compositor _compositor = Compositor.compositor;
+  final Map<int, Surface> _surfaces = {};
+  final Map<int, String> _titles = {};
+  final Set<int> _minimized = {};
+  final Set<int> _maximized = {};
+  final List<int> _order = [];
+  StreamSubscription<Surface>? _surfaceMappedSub;
+  StreamSubscription<Surface>? _surfaceUnmappedSub;
+  StreamSubscription<Surface>? _surfaceUpdatedSub;
+
+  int? _activeHandle;
+
+  @override
+  int? get activeHandle => _activeHandle;
+
+  @override
+  List<CompositorWindowEntry> get windows {
+    final List<int> orderedHandles =
+        _order.where(_surfaces.containsKey).toList(growable: false);
+    return orderedHandles
+        .map(
+          (handle) => CompositorWindowEntry(
+            surface: _surfaces[handle]!,
+            title: _titles[handle] ?? 'Application $handle',
+            appId: _surfaces[handle]!.appId,
+            minimized: _minimized.contains(handle),
+            maximized: _maximized.contains(handle),
+            active: handle == _activeHandle,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  bool isMinimized(int handle) => _minimized.contains(handle);
+
+  @override
+  bool isMaximized(int handle) => _maximized.contains(handle);
+
+  @override
+  void start() {
+    _initCompositor();
+  }
+
+  @override
+  FutureOr<void> stop() {
+    _surfaceMappedSub?.cancel();
+    _surfaceUnmappedSub?.cancel();
+    _surfaceUpdatedSub?.cancel();
+    _surfaces.clear();
+    _titles.clear();
+    _minimized.clear();
+    _maximized.clear();
+    _order.clear();
+  }
+
+  Future<void> _initCompositor() async {
+    final bool isCompositor = await _compositor.isCompositor();
+    if (!isCompositor) return;
+
+    _surfaceMappedSub = _compositor.surfaceMapped.stream.listen((surface) {
+      _surfaces[surface.handle] = surface;
+      _titles[surface.handle] = _resolveTitle(surface);
+      _order.add(surface.handle);
+      _activeHandle = surface.handle;
+      notifyListeners();
+    });
+
+    _surfaceUnmappedSub = _compositor.surfaceUnmapped.stream.listen((surface) {
+      _surfaces.remove(surface.handle);
+      _titles.remove(surface.handle);
+      _minimized.remove(surface.handle);
+      _maximized.remove(surface.handle);
+      _order.remove(surface.handle);
+      if (_activeHandle == surface.handle) {
+        _activeHandle = _order.isNotEmpty ? _order.last : null;
+      }
+      notifyListeners();
+    });
+
+    _surfaceUpdatedSub = _compositor.surfaceUpdated.stream.listen((surface) {
+      _titles[surface.handle] = _resolveTitle(surface);
+      notifyListeners();
+    });
+  }
+
+  String _resolveTitle(Surface surface) {
+    final String? title = surface.title?.trim();
+    if (title != null && title.isNotEmpty) return title;
+    final String? appId = surface.appId?.trim();
+    if (appId != null && appId.isNotEmpty) return appId;
+    return 'Application ${surface.handle}';
+  }
+
+  @override
+  void setActive(int handle) {
+    if (!_surfaces.containsKey(handle)) return;
+    _activeHandle = handle;
+    _order.remove(handle);
+    _order.add(handle);
+    _minimized.remove(handle);
+    notifyListeners();
+  }
+
+  @override
+  void toggleMinimize(int handle) {
+    if (!_surfaces.containsKey(handle)) return;
+    if (_minimized.contains(handle)) {
+      _minimized.remove(handle);
+      _activeHandle = handle;
+    } else {
+      _minimized.add(handle);
+      if (_activeHandle == handle) {
+        _activeHandle = _order.reversed
+            .firstWhere((value) => !_minimized.contains(value), orElse: () => handle);
+        if (_activeHandle == handle && _minimized.contains(handle)) {
+          _activeHandle = null;
+        }
+      }
+    }
+    notifyListeners();
+  }
+
+  @override
+  Future<void> toggleMaximize(Surface surface, bool maximized) async {
+    if (!_surfaces.containsKey(surface.handle)) return;
+    if (maximized) {
+      _maximized.add(surface.handle);
+    } else {
+      _maximized.remove(surface.handle);
+    }
+    await _compositor.platform.surfaceToplevelSetMaximized(surface, maximized);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> close(Surface surface) async {
+    if (!_surfaces.containsKey(surface.handle)) return;
+    await _compositor.platform.surfaceToplevelClose(surface);
   }
 }

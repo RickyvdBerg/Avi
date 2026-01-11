@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:compositor_dart/compositor_dart.dart';
 import 'package:dahlia_shared/dahlia_shared.dart';
 import 'package:flutter/material.dart';
 import 'package:pangolin/components/window/window_surface.dart';
@@ -45,7 +46,7 @@ class _LinuxApplicationService extends ApplicationService {
   List<DesktopEntry> listApplications() => entries.values.toList();
 
   @override
-  void startApp(String name) {
+  Future<void> startApp(String name) async {
     final DesktopEntry? app = getApp(name);
 
     if (app == null) {
@@ -58,12 +59,28 @@ class _LinuxApplicationService extends ApplicationService {
     final List<String> commandParts = app.exec!.split(" ");
     commandParts.removeWhere((e) => e.startsWith(RegExp("%[fuFU]")));
 
+    final Map<String, String> environment = {
+      ...Platform.environment,
+    };
+
+    try {
+      final bool isCompositor =
+          await Compositor.compositor.isCompositor();
+      if (isCompositor) {
+        final sockets = await Compositor.compositor.getSocketPaths();
+        environment["WAYLAND_DISPLAY"] = sockets.wayland;
+        if (sockets.x.isNotEmpty) {
+          environment["DISPLAY"] = sockets.x;
+        }
+      }
+    } catch (error) {
+      logger.warning("Failed to fetch compositor sockets", error);
+    }
+
     Process.run(
       commandParts.first,
       commandParts.sublist(1),
-      environment: {
-        ...Platform.environment,
-      },
+      environment: environment,
     );
   }
 

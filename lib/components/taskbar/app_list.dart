@@ -7,6 +7,7 @@ import 'package:pangolin/components/taskbar/taskbar_item.dart';
 import 'package:pangolin/services/application.dart';
 import 'package:pangolin/services/wm.dart';
 import 'package:pangolin/utils/wm/properties.dart';
+import 'package:xdg_desktop/xdg_desktop.dart';
 
 class AppListElement extends StatefulWidget {
   const AppListElement({super.key});
@@ -18,6 +19,7 @@ class AppListElement extends StatefulWidget {
 class _AppListElementState extends State<AppListElement> {
   CustomizationService get customization => CustomizationService.current;
   WindowManagerService get wm => WindowManagerService.current;
+  CompositorWindowService get compositor => CompositorWindowService.current;
 
   final List<_AppSlot> _slots = [];
 
@@ -34,12 +36,14 @@ class _AppListElementState extends State<AppListElement> {
     _onCurrentEntriesChanged();
     customization.addListener(_onPinnedAppsChanged);
     wm.controller.addListener(_onCurrentEntriesChanged);
+    compositor.addListener(_onCompositorChanged);
   }
 
   @override
   void dispose() {
     customization.removeListener(_onPinnedAppsChanged);
     wm.controller.removeListener(_onCurrentEntriesChanged);
+    compositor.removeListener(_onCompositorChanged);
     super.dispose();
   }
 
@@ -140,12 +144,23 @@ class _AppListElementState extends State<AppListElement> {
     }
   }
 
+  void _onCompositorChanged() {
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
+    final List<CompositorWindowEntry> compositorWindows = compositor.windows;
+
     return ReorderableListView.builder(
       shrinkWrap: true,
       scrollDirection: Axis.horizontal,
       onReorder: (oldIndex, newIndex) {
+        if (oldIndex >= _slots.length) return;
+
+        if (newIndex > _slots.length) {
+          newIndex = _slots.length;
+        }
         if (newIndex > oldIndex) {
           newIndex -= 1;
         }
@@ -157,9 +172,6 @@ class _AppListElementState extends State<AppListElement> {
         setState(() {});
 
         if (item.pinned) {
-          // if a pinned item is moved then we might need to update the order
-          // it's saved inside the preferences, time to check
-
           final bool orderChanged =
               !listEquals(_pinnedApps, customization.pinnedApps);
 
@@ -172,14 +184,38 @@ class _AppListElementState extends State<AppListElement> {
       proxyDecorator: (child, index, animation) {
         return child;
       },
-      itemBuilder: (context, index) => ReorderableDragStartListener(
-        key: ValueKey(_slots[index]),
-        index: index,
-        child: TaskbarItem(
-          entry: ApplicationService.current.getApp(_slots[index].id)!,
-        ),
-      ),
-      itemCount: _slots.length,
+      itemBuilder: (context, index) {
+        if (index < _slots.length) {
+          return ReorderableDragStartListener(
+            key: ValueKey(_slots[index]),
+            index: index,
+            child: TaskbarItem(
+              entry: ApplicationService.current.getApp(_slots[index].id)!,
+            ),
+          );
+        }
+
+        final CompositorWindowEntry window =
+            compositorWindows[index - _slots.length];
+        final DesktopEntry? appEntry = window.appId != null
+            ? ApplicationService.current.getApp(window.appId!)
+            : null;
+
+        return CompositorTaskbarItem(
+          key: ValueKey('compositor-${window.surface.handle}'),
+          window: window,
+          entry: appEntry,
+          onTap: () {
+            if (window.active && !window.minimized) {
+              compositor.toggleMinimize(window.surface.handle);
+            } else {
+              compositor.setActive(window.surface.handle);
+            }
+          },
+          onClose: () => compositor.close(window.surface),
+        );
+      },
+      itemCount: _slots.length + compositorWindows.length,
     );
   }
 }

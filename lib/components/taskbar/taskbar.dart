@@ -16,6 +16,7 @@ limitations under the License.
 
 import 'package:dahlia_shared/dahlia_shared.dart';
 import 'package:flutter/material.dart';
+import 'package:pangolin/widgets/acrylic/acrylic.dart';
 import 'package:pangolin/widgets/separated_flex.dart';
 import 'package:pangolin/widgets/surface/surface_layer.dart';
 
@@ -46,50 +47,72 @@ class _TaskbarState extends State<Taskbar>
       right: 0,
       bottom: 0,
       height: 48,
-      child: SurfaceLayer(
-        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-        child: SizedBox.expand(
-          child: Material(
-            type: MaterialType.transparency,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Row(
-                    children: [
-                      SeparatedFlex(
-                        axis: Axis.horizontal,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        separator: const SizedBox(width: 4),
-                        children: widget.leading,
-                      ),
-                      Expanded(
-                        child: !widget.centerRelativeToScreen
-                            ? Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: widget.center,
-                              )
-                            : const SizedBox.shrink(),
-                      ),
-                      SeparatedFlex(
-                        axis: Axis.horizontal,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        separator: const SizedBox(width: 4),
-                        children: widget.trailing,
-                      ),
-                    ],
-                  ),
-                ),
-                if (widget.centerRelativeToScreen)
+      child: AcrylicLayer(
+        isBackground: true,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: SizedBox.expand(
+            child: Material(
+              color: Theme.of(context).colorScheme.surface.withOpacity(0.6),
+              child: Stack(
+                children: [
                   Positioned.fill(
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: widget.center,
+                      children: [
+                        SeparatedFlex(
+                          axis: Axis.horizontal,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          separator: const SizedBox(width: 4),
+                          children: widget.leading,
+                        ),
+                        Expanded(
+                          child: !widget.centerRelativeToScreen
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    _buildCenterGroup(widget.center),
+                                  ],
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                        SeparatedFlex(
+                          axis: Axis.horizontal,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          separator: const SizedBox(width: 4),
+                          children: widget.trailing,
+                        ),
+                      ],
                     ),
                   ),
-              ],
+                  if (widget.centerRelativeToScreen)
+                    Positioned.fill(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildCenterGroup(widget.center),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCenterGroup(List<Widget> children) {
+    return SurfaceLayer(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      outline: true,
+      dropShadow: true,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: children,
       ),
     );
   }

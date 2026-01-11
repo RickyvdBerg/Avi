@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import 'package:compositor_dart/compositor_dart.dart';
+import 'package:compositor_dart/platform/interceptor_widgets_binding.dart';
 import 'package:dahlia_shared/dahlia_shared.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -35,9 +37,13 @@ import 'package:yatl_flutter/yatl_flutter.dart';
 import 'package:zenit_ui/zenit_ui.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  InterceptorWidgetsBinding.ensureInitialized();
 
   setupLogger();
+  final bool isCompositor = await Compositor.compositor.isCompositor();
+  if (isCompositor) {
+    Compositor.initLogger();
+  }
 
   runApp(
     ServiceBuilderWidget(
@@ -47,6 +53,9 @@ Future<void> main() async {
         ServiceEntry<SearchService>(SearchServiceFactory()),
         ServiceEntry<WindowManagerService>.critical(
           WindowManagerServiceFactory(),
+        ),
+        ServiceEntry<CompositorWindowService>(
+          CompositorWindowServiceFactory(),
         ),
         ServiceEntry<LangPacksService>(LangPacksServiceFactory()),
         ServiceEntry<ApplicationService>(ApplicationServiceFactory()),

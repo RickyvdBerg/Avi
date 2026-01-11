@@ -37,37 +37,42 @@ class AcrylicLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-      child: CustomPaint(
-        painter: AcrylicLayerPainter(
-          darkMode: Theme.of(context).brightness == Brightness.dark,
-          isBackground: isBackground,
-          opacity: opacity,
-        ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-          child: Stack(
-            children: [
-              Opacity(
-                opacity: noiseOpacity,
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(
-                    image: DecorationImage(
-                      image: AssetImage(
-                        "assets/textures/NoiseAsset_256X256_PNG.png",
+    // ClipRect is REQUIRED to constrain BackdropFilter to this widget's bounds.
+    // Without it, the blur effect "leaks" to cover the entire screen.
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        child: CustomPaint(
+          painter: AcrylicLayerPainter(
+            darkMode: Theme.of(context).brightness == Brightness.dark,
+            isBackground: isBackground,
+            opacity: opacity,
+          ),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+            child: Stack(
+              children: [
+                if (enableNoise)
+                  Opacity(
+                    opacity: noiseOpacity,
+                    child: const DecoratedBox(
+                      decoration: BoxDecoration(
+                        image: DecorationImage(
+                          image: AssetImage(
+                            "assets/textures/NoiseAsset_256X256_PNG.png",
+                          ),
+                          alignment: Alignment.topLeft,
+                          repeat: ImageRepeat.repeat,
+                        ),
+                        backgroundBlendMode: BlendMode.srcOver,
+                        color: Colors.transparent,
                       ),
-                      alignment: Alignment.topLeft,
-                      repeat: ImageRepeat.repeat,
+                      child: SizedBox.expand(),
                     ),
-                    backgroundBlendMode: BlendMode.srcOver,
-                    color: Colors.transparent,
                   ),
-                  child: Container(),
-                ),
-              ),
-              Center(child: child),
-            ],
+                if (child != null) Center(child: child),
+              ],
+            ),
           ),
         ),
       ),
@@ -94,7 +99,7 @@ class AcrylicLayerPainter extends CustomPainter {
 
   // painter
   @override
-  Future<void> paint(Canvas canvas, Size size) async {
+  void paint(Canvas canvas, Size size) {
     final Color darkModeColor = const Color(0xff1C1C1E).withOpacity(opacity);
     final Color lightModeColor = const Color(0xfffafafa).withOpacity(opacity);
 

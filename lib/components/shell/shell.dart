@@ -74,16 +74,24 @@ class ShellState extends State<Shell> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final bool hasOverlays =
+        ShellService.current.currentlyShownOverlays.isNotEmpty;
+
     return SizedBox.expand(
       child: Stack(
         fit: StackFit.expand,
         children: [
           Positioned.fill(
-            child: Listener(
-              onPointerDown: (event) {
-                ShellService.current.dismissEverything();
-              },
-              behavior: HitTestBehavior.translucent,
+            child: IgnorePointer(
+              ignoring: !hasOverlays,
+              child: Listener(
+                onPointerDown: (event) {
+                  if (hasOverlays) {
+                    ShellService.current.dismissEverything();
+                  }
+                },
+                behavior: HitTestBehavior.translucent,
+              ),
             ),
           ),
           const Taskbar(
