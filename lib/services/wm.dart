@@ -107,6 +107,7 @@ class CompositorWindowEntry {
   final bool minimized;
   final bool maximized;
   final bool active;
+  final int zIndex;
 
   const CompositorWindowEntry({
     required this.surface,
@@ -115,6 +116,7 @@ class CompositorWindowEntry {
     required this.minimized,
     required this.maximized,
     required this.active,
+    required this.zIndex,
   });
 }
 
@@ -123,7 +125,12 @@ abstract class CompositorWindowService extends ListenableService {
     return ServiceManager.getService<CompositorWindowService>()!;
   }
 
+  /// Windows in stable taskbar order (order they were opened)
   List<CompositorWindowEntry> get windows;
+  
+  /// Windows in z-order (back to front, last = topmost)
+  List<CompositorWindowEntry> get windowsByZOrder;
+  
   bool isMinimized(int handle);
   bool isMaximized(int handle);
   int? get activeHandle;
@@ -140,7 +147,13 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
   final Map<int, String> _titles = {};
   final Set<int> _minimized = {};
   final Set<int> _maximized = {};
-  final List<int> _order = [];
+  
+  /// Stable order for taskbar display (order windows were created)
+  final List<int> _taskbarOrder = [];
+  
+  /// Z-order for stacking (last = topmost/focused)
+  final List<int> _zOrder = [];
+  
   StreamSubscription<Surface>? _surfaceMappedSub;
   StreamSubscription<Surface>? _surfaceUnmappedSub;
   StreamSubscription<Surface>? _surfaceUpdatedSub;
@@ -152,20 +165,32 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
 
   @override
   List<CompositorWindowEntry> get windows {
-    final List<int> orderedHandles =
-        _order.where(_surfaces.containsKey).toList(growable: false);
-    return orderedHandles
-        .map(
-          (handle) => CompositorWindowEntry(
-            surface: _surfaces[handle]!,
-            title: _titles[handle] ?? 'Application $handle',
-            appId: _surfaces[handle]!.appId,
-            minimized: _minimized.contains(handle),
-            maximized: _maximized.contains(handle),
-            active: handle == _activeHandle,
-          ),
-        )
+    // Return windows in stable taskbar order
+    return _taskbarOrder
+        .where(_surfaces.containsKey)
+        .map((handle) => _createEntry(handle))
         .toList(growable: false);
+  }
+
+  @override
+  List<CompositorWindowEntry> get windowsByZOrder {
+    // Return windows in z-order (for rendering)
+    return _zOrder
+        .where(_surfaces.containsKey)
+        .map((handle) => _createEntry(handle))
+        .toList(growable: false);
+  }
+
+  CompositorWindowEntry _createEntry(int handle) {
+    return CompositorWindowEntry(
+      surface: _surfaces[handle]!,
+      title: _titles[handle] ?? 'Application $handle',
+      appId: _surfaces[handle]!.appId,
+      minimized: _minimized.contains(handle),
+      maximized: _maximized.contains(handle),
+      active: handle == _activeHandle,
+      zIndex: _zOrder.indexOf(handle),
+    );
   }
 
   @override
@@ -188,7 +213,8 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
     _titles.clear();
     _minimized.clear();
     _maximized.clear();
-    _order.clear();
+    _taskbarOrder.clear();
+    _zOrder.clear();
   }
 
   Future<void> _initCompositor() async {
@@ -198,7 +224,8 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
     _surfaceMappedSub = _compositor.surfaceMapped.stream.listen((surface) {
       _surfaces[surface.handle] = surface;
       _titles[surface.handle] = _resolveTitle(surface);
-      _order.add(surface.handle);
+      _taskbarOrder.add(surface.handle);
+      _zOrder.add(surface.handle);
       _activeHandle = surface.handle;
       notifyListeners();
     });
@@ -208,9 +235,13 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
       _titles.remove(surface.handle);
       _minimized.remove(surface.handle);
       _maximized.remove(surface.handle);
-      _order.remove(surface.handle);
+      _taskbarOrder.remove(surface.handle);
+      _zOrder.remove(surface.handle);
       if (_activeHandle == surface.handle) {
-        _activeHandle = _order.isNotEmpty ? _order.last : null;
+        // Activate the next topmost non-minimized window
+        _activeHandle = _zOrder.reversed
+            .firstWhere((h) => !_minimized.contains(h), orElse: () => -1);
+        if (_activeHandle == -1) _activeHandle = null;
       }
       notifyListeners();
     });
@@ -233,8 +264,9 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
   void setActive(int handle) {
     if (!_surfaces.containsKey(handle)) return;
     _activeHandle = handle;
-    _order.remove(handle);
-    _order.add(handle);
+    // Only update z-order, NOT taskbar order
+    _zOrder.remove(handle);
+    _zOrder.add(handle);
     _minimized.remove(handle);
     notifyListeners();
   }
@@ -245,14 +277,16 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
     if (_minimized.contains(handle)) {
       _minimized.remove(handle);
       _activeHandle = handle;
+      // Bring to front in z-order
+      _zOrder.remove(handle);
+      _zOrder.add(handle);
     } else {
       _minimized.add(handle);
       if (_activeHandle == handle) {
-        _activeHandle = _order.reversed
-            .firstWhere((value) => !_minimized.contains(value), orElse: () => handle);
-        if (_activeHandle == handle && _minimized.contains(handle)) {
-          _activeHandle = null;
-        }
+        // Find next non-minimized window by z-order
+        _activeHandle = _zOrder.reversed
+            .firstWhere((h) => !_minimized.contains(h), orElse: () => -1);
+        if (_activeHandle == -1) _activeHandle = null;
       }
     }
     notifyListeners();

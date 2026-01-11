@@ -49,12 +49,10 @@ class _TaskbarState extends State<Taskbar>
       height: 48,
       child: AcrylicLayer(
         isBackground: true,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-          child: SizedBox.expand(
-            child: Material(
-              color: Theme.of(context).colorScheme.surface.withOpacity(0.6),
-              child: Stack(
+        child: SizedBox.expand(
+          child: Material(
+            color: Theme.of(context).colorScheme.surface.withOpacity(0.6),
+            child: Stack(
                 children: [
                   Positioned.fill(
                     child: Row(
@@ -98,21 +96,23 @@ class _TaskbarState extends State<Taskbar>
             ),
           ),
         ),
-      ),
     );
   }
 
   Widget _buildCenterGroup(List<Widget> children) {
-    return SurfaceLayer(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      outline: true,
-      dropShadow: true,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: children,
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4.0),
+      child: SurfaceLayer(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        outline: false,
+        dropShadow: false,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: children,
+        ),
       ),
     );
   }

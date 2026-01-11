@@ -26,6 +26,7 @@ class _TaskbarItemState extends State<TaskbarItem>
   late AnimationController _ac;
   late Animation<double> _anim;
   bool _hovering = false;
+  bool _previewHovering = false;
   final LayerLink _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
 
@@ -51,6 +52,7 @@ class _TaskbarItemState extends State<TaskbarItem>
   }
 
   void _showTooltip() {
+    if (_overlayEntry != null) return;
     _overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
         width: 220,
@@ -60,9 +62,18 @@ class _TaskbarItemState extends State<TaskbarItem>
           targetAnchor: Alignment.topCenter,
           followerAnchor: Alignment.bottomCenter,
           offset: const Offset(0, -12),
-          child: _TaskbarItemPreview(
-            title: widget.entry.name.resolve(context.locale),
-            iconResource: widget.entry.icon?.main,
+          child: MouseRegion(
+            onEnter: (_) {
+              _previewHovering = true;
+            },
+            onExit: (_) {
+              _previewHovering = false;
+              _maybeRemoveTooltip();
+            },
+            child: _TaskbarItemPreview(
+              title: widget.entry.name.resolve(context.locale),
+              iconResource: widget.entry.icon?.main,
+            ),
           ),
         ),
       ),
@@ -70,8 +81,17 @@ class _TaskbarItemState extends State<TaskbarItem>
     Overlay.of(context).insert(_overlayEntry!);
   }
 
+  void _maybeRemoveTooltip() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (!_hovering && !_previewHovering) {
+        _removeTooltip();
+      }
+    });
+  }
+
   void _removeTooltip() {
     _overlayEntry?.remove();
+    _overlayEntry?.dispose();
     _overlayEntry = null;
   }
 
@@ -107,13 +127,16 @@ class _TaskbarItemState extends State<TaskbarItem>
       _ac.animateBack(0);
     }
 
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+
     return CompositedTransformTarget(
       link: _layerLink,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 3.0),
+        padding: const EdgeInsets.symmetric(horizontal: 2.0, vertical: 4.0),
         child: SizedBox(
-          height: 44,
-          width: 44,
+          height: 36,
+          width: 36,
           child: ContextMenu(
             entries: [
               ContextMenuItem(
@@ -141,29 +164,23 @@ class _TaskbarItemState extends State<TaskbarItem>
                 ),
             ],
             child: Material(
-              borderRadius: BorderRadius.circular(4),
-              color: appIsRunning
-                  ? (showSelected
-                      ? Theme.of(context)
-                          .colorScheme
-                          .secondary
-                          .withOpacity(0.15)
-                      : Theme.of(context)
-                          .colorScheme
-                          .surface
-                          .withOpacity(0.0))
-                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              color: showSelected
+                  ? colors.secondary.withOpacity(0.18)
+                  : _hovering
+                      ? colors.onSurface.withOpacity(0.08)
+                      : Colors.transparent,
               child: InkWell(
                 onHover: (value) {
                   _hovering = value;
                   if (value) {
                     _showTooltip();
                   } else {
-                    _removeTooltip();
+                    _maybeRemoveTooltip();
                   }
                   setState(() {});
                 },
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: BorderRadius.circular(8),
                 onTap: () {
                   if (appIsRunning) {
                     _onTap(context, entry!);
@@ -171,58 +188,22 @@ class _TaskbarItemState extends State<TaskbarItem>
                     ApplicationService.current.startApp(widget.entry.id);
                   }
                 },
-                child: AnimatedBuilder(
-                  animation: _anim,
-                  builder: (context, child) {
-                    return Stack(
-                      children: [
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: appIsRunning
-                                ? (entry?.registry.info.icon != null
-                                    ? Image(
-                                        image: entry!.registry.info.icon!,
-                                      )
-                                    : AutoVisualResource(
-                                        resource: widget.entry.icon?.main ??
-                                            "",
-                                        size: 32,
-                                      ))
-                                : AutoVisualResource(
-                                    resource: widget.entry.icon?.main ?? "",
-                                    size: 32,
-                                  ),
-                          ),
+                child: Center(
+                  child: appIsRunning
+                      ? (entry?.registry.info.icon != null
+                          ? Image(
+                              image: entry!.registry.info.icon!,
+                              width: 28,
+                              height: 28,
+                            )
+                          : AutoVisualResource(
+                              resource: widget.entry.icon?.main ?? "",
+                              size: 28,
+                            ))
+                      : AutoVisualResource(
+                          resource: widget.entry.icon?.main ?? "",
+                          size: 28,
                         ),
-                        AnimatedPositioned(
-                          duration: const Duration(milliseconds: 150),
-                          curve: Curves.ease,
-                          bottom: 0,
-                          left: appIsRunning
-                              ? _hovering
-                                  ? 8
-                                  : showSelected
-                                      ? 8
-                                      : 14
-                              : 22,
-                          right: appIsRunning
-                              ? _hovering
-                                  ? 8
-                                  : showSelected
-                                      ? 8
-                                      : 14
-                              : 22,
-                          height: 3,
-                          child: Material(
-                            borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(2)),
-                            color: Theme.of(context).colorScheme.secondary,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
                 ),
               ),
             ),
@@ -275,6 +256,7 @@ class CompositorTaskbarItem extends StatefulWidget {
 class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
     with StateServiceListener<CustomizationService, CompositorTaskbarItem> {
   bool _hovering = false;
+  bool _previewHovering = false;
   final LayerLink _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
 
@@ -285,6 +267,7 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
   }
 
   void _showTooltip() {
+    if (_overlayEntry != null) return;
     _overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
         width: 220,
@@ -294,9 +277,18 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
           targetAnchor: Alignment.topCenter,
           followerAnchor: Alignment.bottomCenter,
           offset: const Offset(0, -12),
-          child: _TaskbarItemPreview(
-            title: widget.window.title,
-            iconResource: widget.entry?.icon?.main,
+          child: MouseRegion(
+            onEnter: (_) {
+              _previewHovering = true;
+            },
+            onExit: (_) {
+              _previewHovering = false;
+              _maybeRemoveTooltip();
+            },
+            child: _TaskbarItemPreview(
+              title: widget.window.title,
+              iconResource: widget.entry?.icon?.main,
+            ),
           ),
         ),
       ),
@@ -304,8 +296,17 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
     Overlay.of(context).insert(_overlayEntry!);
   }
 
+  void _maybeRemoveTooltip() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (!_hovering && !_previewHovering) {
+        _removeTooltip();
+      }
+    });
+  }
+
   void _removeTooltip() {
     _overlayEntry?.remove();
+    _overlayEntry?.dispose();
     _overlayEntry = null;
   }
 
@@ -313,62 +314,38 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
   Widget buildChild(BuildContext context, CustomizationService service) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    // Only show as active if this is THE focused window (not just running)
     final bool active = widget.window.active && !widget.window.minimized;
-
-    final Color backgroundColor = active
-        ? colors.secondary.withOpacity(0.15)
-        : _hovering
-            ? colors.onSurface.withOpacity(0.06)
-            : Colors.transparent;
 
     return CompositedTransformTarget(
       link: _layerLink,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 3.0),
+        padding: const EdgeInsets.symmetric(horizontal: 2.0, vertical: 4.0),
         child: SizedBox(
-          height: 44,
-          width: 44,
+          height: 36,
+          width: 36,
           child: Material(
-            borderRadius: BorderRadius.circular(4),
-            color: backgroundColor,
+            borderRadius: BorderRadius.circular(8),
+            color: active
+                ? colors.secondary.withOpacity(0.18)
+                : _hovering
+                    ? colors.onSurface.withOpacity(0.08)
+                    : Colors.transparent,
             child: InkWell(
               onHover: (value) {
                 _hovering = value;
                 if (value) {
                   _showTooltip();
                 } else {
-                  _removeTooltip();
+                  _maybeRemoveTooltip();
                 }
                 setState(() {});
               },
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(8),
               onTap: widget.onTap,
-              child: Stack(
-                children: [
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: _TaskbarIcon(
-                          entry: widget.entry, color: colors.onSurface),
-                    ),
-                  ),
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 150),
-                    curve: Curves.ease,
-                    bottom: 0,
-                    left: active ? 8 : 14,
-                    right: active ? 8 : 14,
-                    height: 3,
-                    child: Material(
-                      borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(2)),
-                      color: colors.secondary.withOpacity(
-                          widget.window.minimized
-                              ? 0.5
-                              : 1.0),
-                    ),
-                  ),
-                ],
+              child: Center(
+                child: _TaskbarIcon(
+                    entry: widget.entry, color: colors.onSurface),
               ),
             ),
           ),
@@ -392,13 +369,13 @@ class _TaskbarIcon extends StatelessWidget {
     if (entry?.icon != null) {
       return AutoVisualResource(
         resource: entry!.icon!.main,
-        size: 26,
+        size: 28,
       );
     }
 
     return Icon(
       Icons.apps,
-      size: 24,
+      size: 22,
       color: color,
     );
   }

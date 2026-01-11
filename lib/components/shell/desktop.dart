@@ -147,7 +147,8 @@ class _DesktopState extends State<Desktop> {
   }
 
   Widget _buildCompositorLayer() {
-    final List<CompositorWindowEntry> windows = _windowService.windows;
+    // Use windowsByZOrder for rendering so windows stack correctly
+    final List<CompositorWindowEntry> windows = _windowService.windowsByZOrder;
     if (!_isCompositor || windows.isEmpty) {
       return const SizedBox.shrink();
     }
