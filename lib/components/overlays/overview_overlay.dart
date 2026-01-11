@@ -63,7 +63,7 @@ class _OverviewOverlayState extends ShellOverlayState<OverviewOverlay>
         },
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: theme.surfaceColor,
+            color: theme.colorScheme.surface,
           ),
           child: Stack(
             children: [
@@ -85,7 +85,7 @@ class _OverviewOverlayState extends ShellOverlayState<OverviewOverlay>
                           clipBehavior: Clip.antiAlias,
                           shape: Constants.smallShape.copyWith(
                             side: BorderSide(
-                              color: theme.foregroundColor,
+                              color: theme.colorScheme.onSurface,
                               width: 2,
                             ),
                           ),

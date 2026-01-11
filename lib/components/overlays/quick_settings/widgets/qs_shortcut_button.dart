@@ -32,7 +32,7 @@ class QsShortcutButton extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: 8.0),
       child: Material(
-        color: Theme.of(context).surfaceColor,
+        color: Theme.of(context).colorScheme.surface,
         clipBehavior: Clip.antiAlias,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(

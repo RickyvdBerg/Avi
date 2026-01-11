@@ -44,7 +44,7 @@ class QsTitlebar extends StatelessWidget implements PreferredSizeWidget {
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 height: 1.1,
-                color: Theme.of(context).foregroundColor,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           const Spacer(),

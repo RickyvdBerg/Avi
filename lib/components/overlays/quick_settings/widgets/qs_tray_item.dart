@@ -149,7 +149,7 @@ class _TrayMenuItemState extends State<QsTrayMenuItem> {
     );
 
     return Material(
-      color: Theme.of(context).surfaceColor,
+      color: Theme.of(context).colorScheme.surface,
       clipBehavior: Clip.antiAlias,
       borderRadius: BorderRadius.circular(16),
       child: Tooltip(

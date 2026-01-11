@@ -39,7 +39,7 @@ class QsToggleButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final Color color = enabled ? theme.primaryColor : theme.surfaceColor;
+    final Color color = enabled ? theme.primaryColor : theme.colorScheme.surface;
     final String? subtitle = this.subtitle?.resolve(enabled: enabled);
 
     return SizedBox(

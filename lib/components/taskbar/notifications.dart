@@ -94,7 +94,7 @@ class _NotificationIconState extends State<_NotificationIcon>
                   ? Material(
                       color: _unreadNotifs
                           ? Theme.of(context).colorScheme.secondary
-                          : Theme.of(context).surfaceColor,
+                          : Theme.of(context).colorScheme.surface,
                       type: showing
                           ? MaterialType.transparency
                           : MaterialType.canvas,

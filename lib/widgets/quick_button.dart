@@ -54,7 +54,7 @@ class _QuickActionButtonState extends State<QuickActionButton> {
         width: titleIsNull ? widget.size ?? 40 : null,
         child: Material(
           clipBehavior: Clip.antiAlias,
-          color: Theme.of(context).surfaceColor,
+          color: Theme.of(context).colorScheme.surface,
           shape: Constants.circularShape,
           child: InkWell(
             onTap: widget.onPressed,

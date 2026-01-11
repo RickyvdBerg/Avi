@@ -192,7 +192,7 @@ class _QsMainState extends State<QsMain>
         textStyle: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w500,
-          color: Theme.of(context).foregroundColor,
+          color: Theme.of(context).colorScheme.onSurface,
         ),
       ),
       const Spacer(),
@@ -704,22 +704,18 @@ class _RenderFixedSizeTransitionStack extends RenderBox
     size = _computeSize(
       constraints: constraints,
       layoutChild: (box, constraints) {
-        final size = box.getDryLayout(constraints);
-
-        final unboundedWidth = size.width == double.infinity &&
-            constraints.maxWidth == double.infinity;
-        final unboundedHeight = size.height == double.infinity &&
-            constraints.maxHeight == double.infinity;
-
         final BoxConstraints newConstraints;
-        if (unboundedWidth || unboundedHeight) {
+        if (constraints.maxWidth == double.infinity ||
+            constraints.maxHeight == double.infinity) {
           newConstraints = BoxConstraints(
             minWidth: constraints.minWidth,
-            maxWidth:
-                unboundedWidth ? fallbackSize.width : constraints.maxWidth,
+            maxWidth: constraints.maxWidth == double.infinity
+                ? fallbackSize.width
+                : constraints.maxWidth,
             minHeight: constraints.minHeight,
-            maxHeight:
-                unboundedHeight ? fallbackSize.height : constraints.maxHeight,
+            maxHeight: constraints.maxHeight == double.infinity
+                ? fallbackSize.height
+                : constraints.maxHeight,
           );
         } else {
           newConstraints = constraints;
@@ -817,10 +813,7 @@ class _RenderFixedSizeTransitionStack extends RenderBox
 
   @override
   Size computeDryLayout(BoxConstraints constraints) {
-    return _computeSize(
-      constraints: constraints,
-      layoutChild: ChildLayoutHelper.dryLayoutChild,
-    );
+    return constraints.constrain(fallbackSize);
   }
 
   @override

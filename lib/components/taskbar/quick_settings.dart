@@ -43,7 +43,7 @@ class QuickSettingsButton extends StatelessWidget
               .getShowingNotifier(QuickSettingsOverlay.overlayId),
           builder: (context, showing, child) {
             final foregroundColor =
-                showing ? theme.accentForegroundColor : theme.foregroundColor;
+                showing ? theme.accentForegroundColor : theme.colorScheme.onSurface;
             return SeparatedFlex(
               axis: Axis.horizontal,
               separator: const SizedBox(width: 8),

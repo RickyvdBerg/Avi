@@ -50,13 +50,13 @@ class _ContextMenuState extends State<ContextMenu> {
         onOpen: widget.onOpen,
         onClose: widget.onClose,
         style: MenuStyle(
-          backgroundColor: MaterialStatePropertyAll<Color>(
-            Theme.of(context).colorScheme.background,
+          backgroundColor: WidgetStatePropertyAll<Color>(
+            Theme.of(context).colorScheme.surface,
           ),
-          shape: const MaterialStatePropertyAll(Constants.mediumShape),
-          side: MaterialStatePropertyAll(
+          shape: const WidgetStatePropertyAll(Constants.mediumShape),
+          side: WidgetStatePropertyAll(
             BorderSide(
-              color: ZenitThemeData(Theme.of(context)).foregroundColor.op(0.1),
+              color: Theme.of(context).colorScheme.onSurface.op(0.1),
             ),
           ),
         ),
