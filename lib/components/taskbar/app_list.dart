@@ -151,6 +151,13 @@ class _AppListElementState extends State<AppListElement> {
   @override
   Widget build(BuildContext context) {
     final List<CompositorWindowEntry> compositorWindows = compositor.windows;
+    
+    final Map<String?, List<CompositorWindowEntry>> groupedByAppId = {};
+    for (final window in compositorWindows) {
+      final key = window.appId ?? 'unknown-${window.surface.handle}';
+      groupedByAppId.putIfAbsent(key, () => []).add(window);
+    }
+    final List<String?> appIds = groupedByAppId.keys.toList();
 
     return ReorderableListView.builder(
       shrinkWrap: true,
@@ -195,27 +202,40 @@ class _AppListElementState extends State<AppListElement> {
           );
         }
 
-        final CompositorWindowEntry window =
-            compositorWindows[index - _slots.length];
-        final DesktopEntry? appEntry = window.appId != null
-            ? ApplicationService.current.getApp(window.appId!)
+        final String? appId = appIds[index - _slots.length];
+        final List<CompositorWindowEntry> windowsForApp = groupedByAppId[appId]!;
+        final CompositorWindowEntry primaryWindow = windowsForApp.firstWhere(
+          (w) => w.active,
+          orElse: () => windowsForApp.first,
+        );
+        final DesktopEntry? appEntry = primaryWindow.appId != null
+            ? ApplicationService.current.getApp(primaryWindow.appId!)
             : null;
 
         return CompositorTaskbarItem(
-          key: ValueKey('compositor-${window.surface.handle}'),
-          window: window,
+          key: ValueKey(
+              'compositor-group-${appId ?? primaryWindow.surface.handle}'),
+          windows: windowsForApp,
           entry: appEntry,
           onTap: () {
-            if (window.active && !window.minimized) {
-              compositor.toggleMinimize(window.surface.handle);
+            final bool anyActive =
+                windowsForApp.any((w) => w.active && !w.minimized);
+            if (anyActive) {
+              for (final w in windowsForApp) {
+                compositor.toggleMinimize(w.surface.handle);
+              }
             } else {
-              compositor.setActive(window.surface.handle);
+              compositor.setActive(primaryWindow.surface.handle);
             }
           },
-          onClose: () => compositor.close(window.surface),
+          onClose: () {
+            for (final w in windowsForApp) {
+              compositor.close(w.surface);
+            }
+          },
         );
       },
-      itemCount: _slots.length + compositorWindows.length,
+      itemCount: _slots.length + appIds.length,
     );
   }
 }

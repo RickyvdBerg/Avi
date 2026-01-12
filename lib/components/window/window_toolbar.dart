@@ -181,6 +181,7 @@ class _PangolinWindowToolbarState extends State<PangolinWindowToolbar> {
                     child: MouseRegion(
                       cursor: _cursor,
                       child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
                         onTertiaryTapUp: (details) {
                           setState(() {
                             onClose(properties);

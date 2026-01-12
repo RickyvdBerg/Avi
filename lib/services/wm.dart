@@ -139,6 +139,12 @@ abstract class CompositorWindowService extends ListenableService {
   void toggleMinimize(int handle);
   Future<void> toggleMaximize(Surface surface, bool maximized);
   Future<void> close(Surface surface);
+  
+  Future<void> beginMove(Surface surface);
+  Future<void> beginResize(Surface surface, int edges);
+  
+  Stream<SurfacePositionEvent> get surfacePositionChanged;
+  Stream<SurfaceGrabEndEvent> get surfaceGrabEnded;
 }
 
 class _CompositorWindowServiceImpl extends CompositorWindowService {
@@ -268,6 +274,7 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
     _zOrder.remove(handle);
     _zOrder.add(handle);
     _minimized.remove(handle);
+    unawaited(_compositor.platform.surfaceFocus(_surfaces[handle]!));
     notifyListeners();
   }
 
@@ -309,4 +316,24 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
     if (!_surfaces.containsKey(surface.handle)) return;
     await _compositor.platform.surfaceToplevelClose(surface);
   }
+
+  @override
+  Future<void> beginMove(Surface surface) async {
+    if (!_surfaces.containsKey(surface.handle)) return;
+    await _compositor.platform.surfaceBeginMove(surface);
+  }
+
+  @override
+  Future<void> beginResize(Surface surface, int edges) async {
+    if (!_surfaces.containsKey(surface.handle)) return;
+    await _compositor.platform.surfaceBeginResize(surface, edges);
+  }
+
+  @override
+  Stream<SurfacePositionEvent> get surfacePositionChanged =>
+      _compositor.surfacePositionChanged.stream;
+
+  @override
+  Stream<SurfaceGrabEndEvent> get surfaceGrabEnded =>
+      _compositor.surfaceGrabEnded.stream;
 }

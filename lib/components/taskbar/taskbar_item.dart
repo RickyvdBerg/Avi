@@ -236,13 +236,13 @@ class _TaskbarItemState extends State<TaskbarItem>
 }
 
 class CompositorTaskbarItem extends StatefulWidget {
-  final CompositorWindowEntry window;
+  final List<CompositorWindowEntry> windows;
   final DesktopEntry? entry;
   final VoidCallback onTap;
   final VoidCallback onClose;
 
   const CompositorTaskbarItem({
-    required this.window,
+    required this.windows,
     required this.entry,
     required this.onTap,
     required this.onClose,
@@ -261,6 +261,14 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
   OverlayEntry? _overlayEntry;
 
   @override
+  void didUpdateWidget(CompositorTaskbarItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_overlayEntry != null) {
+      _overlayEntry!.markNeedsBuild();
+    }
+  }
+
+  @override
   void dispose() {
     _removeTooltip();
     super.dispose();
@@ -270,7 +278,7 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
     if (_overlayEntry != null) return;
     _overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
-        width: 220,
+        width: 260,
         child: CompositedTransformFollower(
           link: _layerLink,
           showWhenUnlinked: false,
@@ -285,8 +293,8 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
               _previewHovering = false;
               _maybeRemoveTooltip();
             },
-            child: _TaskbarItemPreview(
-              title: widget.window.title,
+            child: _WindowGroupPreview(
+              windows: widget.windows,
               iconResource: widget.entry?.icon?.main,
             ),
           ),
@@ -314,8 +322,8 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
   Widget buildChild(BuildContext context, CustomizationService service) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    // Only show as active if this is THE focused window (not just running)
-    final bool active = widget.window.active && !widget.window.minimized;
+    // Active if any window in the group is active and not minimized
+    final bool active = widget.windows.any((w) => w.active && !w.minimized);
 
     return CompositedTransformTarget(
       link: _layerLink,
@@ -442,6 +450,124 @@ class _TaskbarItemPreview extends StatelessWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowGroupPreview extends StatelessWidget {
+  final List<CompositorWindowEntry> windows;
+  final String? iconResource;
+
+  const _WindowGroupPreview({
+    required this.windows,
+    this.iconResource,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceLayer(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      outline: true,
+      dropShadow: true,
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final window in windows)
+              _WindowPreviewRow(window: window, iconResource: iconResource),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowPreviewRow extends StatefulWidget {
+  final CompositorWindowEntry window;
+  final String? iconResource;
+
+  const _WindowPreviewRow({required this.window, this.iconResource});
+
+  @override
+  State<_WindowPreviewRow> createState() => _WindowPreviewRowState();
+}
+
+class _WindowPreviewRowState extends State<_WindowPreviewRow> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onTap: () {
+          if (widget.window.minimized) {
+            CompositorWindowService.current
+                .toggleMinimize(widget.window.surface.handle);
+          } else {
+            CompositorWindowService.current
+                .setActive(widget.window.surface.handle);
+          }
+        },
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            color: _hovering
+                ? colors.surfaceContainerHighest.withOpacity(0.5)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: widget.window.active
+                  ? colors.primary.withOpacity(0.5)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.iconResource != null) ...[
+                AutoVisualResource(resource: widget.iconResource!, size: 16),
+                const SizedBox(width: 12),
+              ],
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: Text(
+                  widget.window.title,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: widget.window.active
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  onTap: () =>
+                      CompositorWindowService.current.close(widget.window.surface),
+                  borderRadius: BorderRadius.circular(4),
+                  hoverColor: colors.error.withOpacity(0.2),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(Icons.close,
+                        size: 14, color: colors.onSurfaceVariant),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
