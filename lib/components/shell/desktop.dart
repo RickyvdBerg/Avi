@@ -37,6 +37,8 @@ import 'package:pangolin/services/shell.dart';
 import 'package:pangolin/services/wm.dart';
 import 'package:pangolin/utils/wm/layout.dart';
 import 'package:pangolin/utils/wm/wm.dart';
+import 'package:pangolin/components/window/window_decoration.dart' show WindowDecoration;
+import 'package:pangolin/components/window/window_decoration.dart' as wd show ResizeEdge;
 
 class Desktop extends StatefulWidget {
   const Desktop({super.key});
@@ -189,9 +191,8 @@ class _DesktopState extends State<Desktop> {
         return;
     }
 
-    setState(() {
-      _surfaceRects[handle] = snapRect;
-    });
+    _updateWindowPosition(handle, snapRect);
+    setState(() {});
 
     final windows = _windowService.windows;
     CompositorWindowEntry? entry;
@@ -206,20 +207,36 @@ class _DesktopState extends State<Desktop> {
     }
   }
 
+  /// Updates window position in Dart and pushes to C for hit-testing
+  void _updateWindowPosition(int handle, Rect rect) {
+    _surfaceRects[handle] = rect;
+    
+    // Push position to C for input hit-testing
+    final windows = _windowService.windows;
+    for (final w in windows) {
+      if (w.surface.handle == handle) {
+        unawaited(_windowService.setWindowPosition(
+          w.surface,
+          rect.left.round(),
+          rect.top.round(),
+        ));
+        break;
+      }
+    }
+  }
+
   void _syncWindows() {
     if (!mounted) return;
     final List<int> handles =
         _windowService.windows.map((entry) => entry.surface.handle).toList();
 
     for (final int handle in handles) {
-      _surfaceRects.putIfAbsent(
-        handle,
-        () {
-          final int index = _surfaceRects.length;
-          final double offset = 48 + (index * 24);
-          return Rect.fromLTWH(offset, offset, 960, 600);
-        },
-      );
+      if (!_surfaceRects.containsKey(handle)) {
+        final int index = _surfaceRects.length;
+        final double offset = 48 + (index * 24);
+        final rect = Rect.fromLTWH(offset, offset, 960, 600);
+        _updateWindowPosition(handle, rect);
+      }
     }
 
     _surfaceRects.removeWhere((handle, rect) => !handles.contains(handle));
@@ -307,20 +324,20 @@ class _DesktopState extends State<Desktop> {
           unawaited(_windowService.beginMove(entry.surface));
         }
 
-        int edgeToFlags(ResizeEdge edge) {
+        int edgeToFlags(wd.ResizeEdge edge) {
           switch (edge) {
-            case ResizeEdge.top: return 1;
-            case ResizeEdge.bottom: return 2;
-            case ResizeEdge.left: return 4;
-            case ResizeEdge.right: return 8;
-            case ResizeEdge.topLeft: return 1 | 4;
-            case ResizeEdge.topRight: return 1 | 8;
-            case ResizeEdge.bottomLeft: return 2 | 4;
-            case ResizeEdge.bottomRight: return 2 | 8;
+            case wd.ResizeEdge.top: return 1;
+            case wd.ResizeEdge.bottom: return 2;
+            case wd.ResizeEdge.left: return 4;
+            case wd.ResizeEdge.right: return 8;
+            case wd.ResizeEdge.topLeft: return 1 | 4;
+            case wd.ResizeEdge.topRight: return 1 | 8;
+            case wd.ResizeEdge.bottomLeft: return 2 | 4;
+            case wd.ResizeEdge.bottomRight: return 2 | 8;
           }
         }
 
-        void beginResizeSurface(CompositorWindowEntry entry, ResizeEdge edge) {
+        void beginResizeSurfaceFromDecoration(CompositorWindowEntry entry, wd.ResizeEdge edge) {
           final int handle = entry.surface.handle;
           _windowService.setActive(handle);
 
@@ -343,6 +360,17 @@ class _DesktopState extends State<Desktop> {
               _currentSnapZone = zone;
             });
           }
+
+          // Directly update the surface position
+          final Rect current = _surfaceRects[handle] ?? const Rect.fromLTWH(48, 48, 960, 600);
+          final Rect next = current.translate(delta.dx, delta.dy);
+          
+          _updateWindowPosition(handle, next);
+          
+          // Force rebuild to update the UI immediately
+          setState(() {
+             _surfaceRects[handle] = next;
+          });
         }
 
         void onMoveEnd(CompositorWindowEntry entry, Offset globalPosition) {
@@ -352,7 +380,7 @@ class _DesktopState extends State<Desktop> {
           });
         }
 
-        void resizeSurface(CompositorWindowEntry entry, ResizeEdge edge, Offset delta) {
+        void resizeSurface(CompositorWindowEntry entry, wd.ResizeEdge edge, Offset delta) {
           final int handle = entry.surface.handle;
           final bool wasMaximized = entry.maximized;
           final Rect current = wasMaximized
@@ -367,7 +395,7 @@ class _DesktopState extends State<Desktop> {
           }
 
           switch (edge) {
-            case ResizeEdge.top:
+            case wd.ResizeEdge.top:
               next = Rect.fromLTRB(
                 current.left,
                 current.top + delta.dy,
@@ -375,7 +403,7 @@ class _DesktopState extends State<Desktop> {
                 current.bottom,
               );
               break;
-            case ResizeEdge.bottom:
+            case wd.ResizeEdge.bottom:
               next = Rect.fromLTRB(
                 current.left,
                 current.top,
@@ -383,7 +411,7 @@ class _DesktopState extends State<Desktop> {
                 current.bottom + delta.dy,
               );
               break;
-            case ResizeEdge.left:
+            case wd.ResizeEdge.left:
               next = Rect.fromLTRB(
                 current.left + delta.dx,
                 current.top,
@@ -391,7 +419,7 @@ class _DesktopState extends State<Desktop> {
                 current.bottom,
               );
               break;
-            case ResizeEdge.right:
+            case wd.ResizeEdge.right:
               next = Rect.fromLTRB(
                 current.left,
                 current.top,
@@ -399,7 +427,7 @@ class _DesktopState extends State<Desktop> {
                 current.bottom,
               );
               break;
-            case ResizeEdge.topLeft:
+            case wd.ResizeEdge.topLeft:
               next = Rect.fromLTRB(
                 current.left + delta.dx,
                 current.top + delta.dy,
@@ -407,7 +435,7 @@ class _DesktopState extends State<Desktop> {
                 current.bottom,
               );
               break;
-            case ResizeEdge.topRight:
+            case wd.ResizeEdge.topRight:
               next = Rect.fromLTRB(
                 current.left,
                 current.top + delta.dy,
@@ -415,7 +443,7 @@ class _DesktopState extends State<Desktop> {
                 current.bottom,
               );
               break;
-            case ResizeEdge.bottomLeft:
+            case wd.ResizeEdge.bottomLeft:
               next = Rect.fromLTRB(
                 current.left + delta.dx,
                 current.top,
@@ -423,7 +451,7 @@ class _DesktopState extends State<Desktop> {
                 current.bottom + delta.dy,
               );
               break;
-            case ResizeEdge.bottomRight:
+            case wd.ResizeEdge.bottomRight:
               next = Rect.fromLTRB(
                 current.left,
                 current.top,
@@ -435,7 +463,7 @@ class _DesktopState extends State<Desktop> {
 
           if (next.width < minSize.width) {
             next = Rect.fromLTWH(
-              edge == ResizeEdge.left || edge == ResizeEdge.topLeft || edge == ResizeEdge.bottomLeft
+              edge == wd.ResizeEdge.left || edge == wd.ResizeEdge.topLeft || edge == wd.ResizeEdge.bottomLeft
                   ? next.right - minSize.width
                   : next.left,
               next.top,
@@ -446,7 +474,7 @@ class _DesktopState extends State<Desktop> {
           if (next.height < minSize.height) {
             next = Rect.fromLTWH(
               next.left,
-              edge == ResizeEdge.top || edge == ResizeEdge.topLeft || edge == ResizeEdge.topRight
+              edge == wd.ResizeEdge.top || edge == wd.ResizeEdge.topLeft || edge == wd.ResizeEdge.topRight
                   ? next.bottom - minSize.height
                   : next.top,
               next.width,
@@ -456,6 +484,9 @@ class _DesktopState extends State<Desktop> {
 
           next = clampRect(next);
           if (!wasMaximized && next == current) return;
+          
+          _updateWindowPosition(handle, next);
+          
           setState(() {
             _surfaceRects[handle] = next;
             if (wasMaximized) {
@@ -469,27 +500,27 @@ class _DesktopState extends State<Desktop> {
           final int handle = entry.surface.handle;
           _windowService.setActive(handle);
           if (entry.maximized) {
-            setState(() {
-              final Rect? restore = _restoreRects.remove(handle);
-              if (restore != null) {
-                _surfaceRects[handle] = clampRect(restore);
-              }
-            });
+            final Rect? restore = _restoreRects.remove(handle);
+            if (restore != null) {
+              final clampedRestore = clampRect(restore);
+              _updateWindowPosition(handle, clampedRestore);
+            }
+            setState(() {});
             await _windowService.toggleMaximize(entry.surface, false);
             return;
           }
 
-          setState(() {
-            final Rect current = _surfaceRects[handle] ??
-                Rect.fromLTWH(48, 48, 960, 600);
-            _restoreRects[handle] = current;
-            _surfaceRects[handle] = Rect.fromLTWH(
-              0,
-              0,
-              bounds.width,
-              math.max(0, bounds.height - bottomInset),
-            );
-          });
+          final Rect current = _surfaceRects[handle] ??
+              Rect.fromLTWH(48, 48, 960, 600);
+          _restoreRects[handle] = current;
+          final maximizedRect = Rect.fromLTWH(
+            0,
+            0,
+            bounds.width,
+            math.max(0, bounds.height - bottomInset),
+          );
+          _updateWindowPosition(handle, maximizedRect);
+          setState(() {});
           await _windowService.toggleMaximize(entry.surface, true);
         }
 
@@ -522,21 +553,30 @@ class _DesktopState extends State<Desktop> {
                     _surfaceRects[window.surface.handle] ??
                         const Rect.fromLTWH(48, 48, 960, 600),
                   ),
-                  child: _FloatingWindowFrame(
+                  child: WindowDecoration(
                     surface: window.surface,
                     title: window.title,
+                    isActive: window.active,
                     isMinimized: window.minimized,
+                    isMaximized: window.maximized,
                     onActivate: () =>
                         _windowService.setActive(window.surface.handle),
                     onMoveStart: () => beginMoveSurface(window),
                     onMove: (delta, globalPosition) => moveSurface(window, delta, globalPosition),
                     onMoveEnd: (globalPosition) => onMoveEnd(window, globalPosition),
-                    onResizeStart: (edge) => beginResizeSurface(window, edge),
-                    onResize: null,
+                    onResizeStart: (edge) => beginResizeSurfaceFromDecoration(window, edge),
+                    onResize: (edge, delta) => resizeSurface(window, edge, delta),
                     onMinimize: () =>
                         _windowService.toggleMinimize(window.surface.handle),
                     onMaximize: () => toggleMaximize(window),
                     onClose: () => closeSurface(window),
+                    child: CompositorSurfaceAutosizeWidget(
+                      surface: window.surface,
+                      child: SurfaceView(
+                        key: ValueKey('surface-${window.surface.handle}'),
+                        surface: window.surface,
+                      ),
+                    ),
                   ),
                 ),
           ],
@@ -560,285 +600,6 @@ class _DesktopState extends State<Desktop> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-enum ResizeEdge {
-  top,
-  bottom,
-  left,
-  right,
-  topLeft,
-  topRight,
-  bottomLeft,
-  bottomRight,
-}
-
-class _FloatingWindowFrame extends StatelessWidget {
-  final Surface surface;
-  final String title;
-  final bool isMinimized;
-  final VoidCallback onMoveStart;
-  final void Function(Offset delta, Offset globalPosition) onMove;
-  final void Function(Offset globalPosition) onMoveEnd;
-  final void Function(ResizeEdge edge)? onResizeStart;
-  final void Function(ResizeEdge, Offset)? onResize;
-  final VoidCallback onClose;
-  final VoidCallback onMinimize;
-  final VoidCallback onMaximize;
-  final VoidCallback onActivate;
-
-  const _FloatingWindowFrame({
-    required this.surface,
-    required this.title,
-    required this.isMinimized,
-    required this.onMoveStart,
-    required this.onMove,
-    required this.onMoveEnd,
-    this.onResizeStart,
-    required this.onResize,
-    required this.onClose,
-    required this.onMinimize,
-    required this.onMaximize,
-    required this.onActivate,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    const double titleBarHeight = 38;
-    const double resizeHitBox = 8;
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.surface.withOpacity(0.98),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: colors.onSurface.withOpacity(0.08),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.15),
-                blurRadius: 24,
-                spreadRadius: -2,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Column(
-              children: [
-                SizedBox(
-                  height: titleBarHeight,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.move,
-                          child: GestureDetector(
-                            onTap: onActivate,
-                            onDoubleTap: onMaximize,
-                            onPanStart: (_) => onMoveStart(),
-                            onPanUpdate: (details) => onMove(details.delta, details.globalPosition),
-                            onPanEnd: (details) => onMoveEnd(details.globalPosition),
-                            behavior: HitTestBehavior.opaque,
-                            child: const SizedBox.expand(),
-                          ),
-                        ),
-                      ),
-                      Center(
-                        child: IgnorePointer(
-                          child: Text(
-                            title,
-                            style: TextStyle(
-                              color: colors.onSurface.withOpacity(0.8),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              letterSpacing: -0.2,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: 12,
-                        top: 0,
-                        bottom: 0,
-                        child: GestureDetector(
-                          onPanUpdate: (_) {},
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _WindowControlButton(
-                                color: const Color(0xFFFF5F56),
-                                onTap: onClose,
-                              ),
-                              const SizedBox(width: 8),
-                              _WindowControlButton(
-                                color: const Color(0xFFFFBD2E),
-                                onTap: onMinimize,
-                              ),
-                              const SizedBox(width: 8),
-                              _WindowControlButton(
-                                color: const Color(0xFF27C93F),
-                                onTap: onMaximize,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (!isMinimized)
-                  Expanded(
-                    child: CompositorSurfaceAutosizeWidget(
-                      surface: surface,
-                      child: SurfaceView(
-                        key: ValueKey('surface-${surface.handle}'),
-                        surface: surface,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        Positioned(
-          top: 0,
-          left: resizeHitBox,
-          right: resizeHitBox,
-          height: resizeHitBox,
-          child: _ResizeHandle(edge: ResizeEdge.top, onResizeStart: () => onResizeStart?.call(ResizeEdge.top), onResize: onResize),
-        ),
-        Positioned(
-          bottom: 0,
-          left: resizeHitBox,
-          right: resizeHitBox,
-          height: resizeHitBox,
-          child: _ResizeHandle(edge: ResizeEdge.bottom, onResizeStart: () => onResizeStart?.call(ResizeEdge.bottom), onResize: onResize),
-        ),
-        Positioned(
-          left: 0,
-          top: resizeHitBox,
-          bottom: resizeHitBox,
-          width: resizeHitBox,
-          child: _ResizeHandle(edge: ResizeEdge.left, onResizeStart: () => onResizeStart?.call(ResizeEdge.left), onResize: onResize),
-        ),
-        Positioned(
-          right: 0,
-          top: resizeHitBox,
-          bottom: resizeHitBox,
-          width: resizeHitBox,
-          child: _ResizeHandle(edge: ResizeEdge.right, onResizeStart: () => onResizeStart?.call(ResizeEdge.right), onResize: onResize),
-        ),
-        Positioned(
-          top: 0,
-          left: 0,
-          width: resizeHitBox * 2,
-          height: resizeHitBox * 2,
-          child: _ResizeHandle(edge: ResizeEdge.topLeft, onResizeStart: () => onResizeStart?.call(ResizeEdge.topLeft), onResize: onResize),
-        ),
-        Positioned(
-          top: 0,
-          right: 0,
-          width: resizeHitBox * 2,
-          height: resizeHitBox * 2,
-          child: _ResizeHandle(edge: ResizeEdge.topRight, onResizeStart: () => onResizeStart?.call(ResizeEdge.topRight), onResize: onResize),
-        ),
-        Positioned(
-          bottom: 0,
-          left: 0,
-          width: resizeHitBox * 2,
-          height: resizeHitBox * 2,
-          child: _ResizeHandle(edge: ResizeEdge.bottomLeft, onResizeStart: () => onResizeStart?.call(ResizeEdge.bottomLeft), onResize: onResize),
-        ),
-        Positioned(
-          bottom: 0,
-          right: 0,
-          width: resizeHitBox * 2,
-          height: resizeHitBox * 2,
-          child: _ResizeHandle(edge: ResizeEdge.bottomRight, onResizeStart: () => onResizeStart?.call(ResizeEdge.bottomRight), onResize: onResize),
-        ),
-      ],
-    );
-  }
-}
-
-class _WindowControlButton extends StatelessWidget {
-  final Color color;
-  final VoidCallback onTap;
-
-  const _WindowControlButton({
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 12,
-        height: 12,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.black.withOpacity(0.06),
-            width: 0.5,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ResizeHandle extends StatelessWidget {
-  final ResizeEdge edge;
-  final VoidCallback? onResizeStart;
-  final void Function(ResizeEdge, Offset)? onResize;
-
-  const _ResizeHandle({
-    required this.edge,
-    this.onResizeStart,
-    required this.onResize,
-  });
-
-  MouseCursor _cursorForEdge(ResizeEdge edge) {
-    switch (edge) {
-      case ResizeEdge.top:
-      case ResizeEdge.bottom:
-        return SystemMouseCursors.resizeUpDown;
-      case ResizeEdge.left:
-      case ResizeEdge.right:
-        return SystemMouseCursors.resizeLeftRight;
-      case ResizeEdge.topLeft:
-      case ResizeEdge.bottomRight:
-        return SystemMouseCursors.resizeUpLeftDownRight;
-      case ResizeEdge.topRight:
-      case ResizeEdge.bottomLeft:
-        return SystemMouseCursors.resizeUpRightDownLeft;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: _cursorForEdge(edge),
-      child: GestureDetector(
-        onPanStart: (_) => onResizeStart?.call(),
-        onPanUpdate: (details) => onResize?.call(edge, details.delta),
-        behavior: HitTestBehavior.opaque,
-        child: const SizedBox.expand(),
       ),
     );
   }

@@ -142,6 +142,7 @@ abstract class CompositorWindowService extends ListenableService {
   
   Future<void> beginMove(Surface surface);
   Future<void> beginResize(Surface surface, int edges);
+  Future<void> setWindowPosition(Surface surface, int x, int y);
   
   Stream<SurfacePositionEvent> get surfacePositionChanged;
   Stream<SurfaceGrabEndEvent> get surfaceGrabEnded;
@@ -327,6 +328,12 @@ class _CompositorWindowServiceImpl extends CompositorWindowService {
   Future<void> beginResize(Surface surface, int edges) async {
     if (!_surfaces.containsKey(surface.handle)) return;
     await _compositor.platform.surfaceBeginResize(surface, edges);
+  }
+
+  @override
+  Future<void> setWindowPosition(Surface surface, int x, int y) async {
+    if (!_surfaces.containsKey(surface.handle)) return;
+    await _compositor.platform.surfaceSetPosition(surface, x, y);
   }
 
   @override
