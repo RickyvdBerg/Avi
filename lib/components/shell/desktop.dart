@@ -125,6 +125,12 @@ class _DesktopState extends State<Desktop> {
   void _onPositionChanged(SurfacePositionEvent event) {
     if (!mounted) return;
     final int handle = event.handle;
+    
+    // Ignore C position events when Dart is controlling this window via drag.
+    // Dart is the source of truth during move/resize operations. C may send
+    // stale or incorrect sizes (e.g., surface size without title bar).
+    if (_draggingHandle == handle) return;
+    
     final Rect current = _surfaceRects[handle] ?? const Rect.fromLTWH(48, 48, 960, 600);
     final double width = event.width > 0 ? event.width.toDouble() : current.width;
     final double height = event.height > 0 ? event.height.toDouble() : current.height;
@@ -280,11 +286,13 @@ class _DesktopState extends State<Desktop> {
           final double height = rect.height.clamp(minSize.height, maxHeight);
           final double maxLeft = math.max(0, bounds.width - width);
           final double maxTop = math.max(0, maxHeight - height);
+          // Round to integer pixels to prevent 1px jitter between Flutter
+          // positioning (sub-pixel) and C hit-testing (integer).
           return Rect.fromLTWH(
-            rect.left.clamp(0, maxLeft),
-            rect.top.clamp(0, maxTop),
-            width,
-            height,
+            rect.left.clamp(0, maxLeft).roundToDouble(),
+            rect.top.clamp(0, maxTop).roundToDouble(),
+            width.roundToDouble(),
+            height.roundToDouble(),
           );
         }
 
@@ -548,36 +556,48 @@ class _DesktopState extends State<Desktop> {
               ),
             for (final window in windows)
               if (!window.minimized)
-                Positioned.fromRect(
-                  rect: clampRect(
-                    _surfaceRects[window.surface.handle] ??
-                        const Rect.fromLTWH(48, 48, 960, 600),
-                  ),
-                  child: WindowDecoration(
-                    surface: window.surface,
-                    title: window.title,
-                    isActive: window.active,
-                    isMinimized: window.minimized,
-                    isMaximized: window.maximized,
-                    onActivate: () =>
-                        _windowService.setActive(window.surface.handle),
-                    onMoveStart: () => beginMoveSurface(window),
-                    onMove: (delta, globalPosition) => moveSurface(window, delta, globalPosition),
-                    onMoveEnd: (globalPosition) => onMoveEnd(window, globalPosition),
-                    onResizeStart: (edge) => beginResizeSurfaceFromDecoration(window, edge),
-                    onResize: (edge, delta) => resizeSurface(window, edge, delta),
-                    onMinimize: () =>
-                        _windowService.toggleMinimize(window.surface.handle),
-                    onMaximize: () => toggleMaximize(window),
-                    onClose: () => closeSurface(window),
-                    child: CompositorSurfaceAutosizeWidget(
-                      surface: window.surface,
-                      child: SurfaceView(
-                        key: ValueKey('surface-${window.surface.handle}'),
-                        surface: window.surface,
+                Builder(
+                  builder: (context) {
+                    final rect = clampRect(
+                      _surfaceRects[window.surface.handle] ??
+                          const Rect.fromLTWH(48, 48, 960, 600),
+                    );
+                    return AnimatedPositioned(
+                      duration: const Duration(milliseconds: 16),
+                      curve: Curves.linear,
+                      left: rect.left,
+                      top: rect.top,
+                      width: rect.width,
+                      height: rect.height,
+                      child: RepaintBoundary(
+                        child: WindowDecoration(
+                          surface: window.surface,
+                          title: window.title,
+                          isActive: window.active,
+                          isMinimized: window.minimized,
+                          isMaximized: window.maximized,
+                          onActivate: () =>
+                              _windowService.setActive(window.surface.handle),
+                          onMoveStart: () => beginMoveSurface(window),
+                          onMove: (delta, globalPosition) => moveSurface(window, delta, globalPosition),
+                          onMoveEnd: (globalPosition) => onMoveEnd(window, globalPosition),
+                          onResizeStart: (edge) => beginResizeSurfaceFromDecoration(window, edge),
+                          onResize: (edge, delta) => resizeSurface(window, edge, delta),
+                          onMinimize: () =>
+                              _windowService.toggleMinimize(window.surface.handle),
+                          onMaximize: () => toggleMaximize(window),
+                          onClose: () => closeSurface(window),
+                          child: CompositorSurfaceAutosizeWidget(
+                            surface: window.surface,
+                            child: SurfaceView(
+                              key: ValueKey('surface-${window.surface.handle}'),
+                              surface: window.surface,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
           ],
         );

@@ -19,7 +19,7 @@ enum ResizeEdge {
 /// rounded corners and consistent title bars on all applications.
 ///
 /// Key features:
-/// - 6px rounded corners (configurable via [borderRadius])
+/// - 12px rounded corners (configurable via [borderRadius])
 /// - Consistent title bar styling
 /// - macOS-style window controls
 /// - Automatic clipping of child content to rounded corners
@@ -40,9 +40,7 @@ class WindowDecoration extends StatelessWidget {
   final void Function(ResizeEdge edge)? onResizeStart;
   final void Function(ResizeEdge edge, Offset delta)? onResize;
 
-  /// Border radius for window corners. Default is 6.0 pixels.
-  /// All windows will be clipped to this radius for visual uniformity.
-  static const double borderRadius = 6.0;
+  static const double borderRadius = 12.0;
 
   /// Height of the title bar. Default is 38 pixels.
   static const double titleBarHeight = 38.0;
@@ -129,7 +127,7 @@ class WindowDecoration extends StatelessWidget {
                         height: hairline,
                         color: Colors.black.withOpacity(isActive ? 0.10 : 0.08),
                       ),
-                      // Content area - clipped by compositor for true rounded corners
+                      // Content area - explicitly clip bottom corners for surface textures
                       if (!isMinimized)
                         Expanded(
                           child: Padding(
@@ -139,7 +137,13 @@ class WindowDecoration extends StatelessWidget {
                               contentInset,
                               contentInset,
                             ),
-                            child: child,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.only(
+                                bottomLeft: Radius.circular(radiusValue - contentInset),
+                                bottomRight: Radius.circular(radiusValue - contentInset),
+                              ),
+                              child: child,
+                            ),
                           ),
                         ),
                     ],
@@ -187,12 +191,16 @@ class WindowDecoration extends StatelessWidget {
   }
 
   Widget _buildResizeHandles() {
+    // Position resize handles OUTSIDE the window bounds to avoid overlapping
+    // with title bar and content. Uses negative offsets so handles are in the
+    // border region around the window, not inside it.
+    const double halfHit = resizeHitBox / 2;
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // Top edge
+        // Top edge - positioned ABOVE the window
         Positioned(
-          top: 0,
+          top: -halfHit,
           left: resizeHitBox,
           right: resizeHitBox,
           height: resizeHitBox,
@@ -202,9 +210,9 @@ class WindowDecoration extends StatelessWidget {
             onResize: onResize,
           ),
         ),
-        // Bottom edge
+        // Bottom edge - positioned BELOW the window
         Positioned(
-          bottom: 0,
+          bottom: -halfHit,
           left: resizeHitBox,
           right: resizeHitBox,
           height: resizeHitBox,
@@ -214,9 +222,9 @@ class WindowDecoration extends StatelessWidget {
             onResize: onResize,
           ),
         ),
-        // Left edge
+        // Left edge - positioned LEFT of the window
         Positioned(
-          left: 0,
+          left: -halfHit,
           top: resizeHitBox,
           bottom: resizeHitBox,
           width: resizeHitBox,
@@ -226,9 +234,9 @@ class WindowDecoration extends StatelessWidget {
             onResize: onResize,
           ),
         ),
-        // Right edge
+        // Right edge - positioned RIGHT of the window
         Positioned(
-          right: 0,
+          right: -halfHit,
           top: resizeHitBox,
           bottom: resizeHitBox,
           width: resizeHitBox,
@@ -238,10 +246,10 @@ class WindowDecoration extends StatelessWidget {
             onResize: onResize,
           ),
         ),
-        // Corner handles
+        // Corner handles - positioned at corners, extending outside
         Positioned(
-          top: 0,
-          left: 0,
+          top: -halfHit,
+          left: -halfHit,
           width: resizeHitBox * 2,
           height: resizeHitBox * 2,
           child: _ResizeHandle(
@@ -251,8 +259,8 @@ class WindowDecoration extends StatelessWidget {
           ),
         ),
         Positioned(
-          top: 0,
-          right: 0,
+          top: -halfHit,
+          right: -halfHit,
           width: resizeHitBox * 2,
           height: resizeHitBox * 2,
           child: _ResizeHandle(
@@ -262,8 +270,8 @@ class WindowDecoration extends StatelessWidget {
           ),
         ),
         Positioned(
-          bottom: 0,
-          left: 0,
+          bottom: -halfHit,
+          left: -halfHit,
           width: resizeHitBox * 2,
           height: resizeHitBox * 2,
           child: _ResizeHandle(
@@ -273,8 +281,8 @@ class WindowDecoration extends StatelessWidget {
           ),
         ),
         Positioned(
-          bottom: 0,
-          right: 0,
+          bottom: -halfHit,
+          right: -halfHit,
           width: resizeHitBox * 2,
           height: resizeHitBox * 2,
           child: _ResizeHandle(
@@ -435,11 +443,13 @@ class _ResizeHandle extends StatelessWidget {
   final ResizeEdge edge;
   final VoidCallback? onResizeStart;
   final void Function(ResizeEdge, Offset)? onResize;
+  final void Function(ResizeEdge)? onResizeEnd;
 
   const _ResizeHandle({
     required this.edge,
     this.onResizeStart,
     required this.onResize,
+    this.onResizeEnd,
   });
 
   MouseCursor _cursorForEdge(ResizeEdge edge) {
@@ -466,6 +476,7 @@ class _ResizeHandle extends StatelessWidget {
       child: GestureDetector(
         onPanStart: (_) => onResizeStart?.call(),
         onPanUpdate: (details) => onResize?.call(edge, details.delta),
+        onPanEnd: (_) => onResizeEnd?.call(edge),
         behavior: HitTestBehavior.opaque,
         child: const SizedBox.expand(),
       ),
