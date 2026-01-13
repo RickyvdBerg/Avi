@@ -1,3 +1,4 @@
+import 'package:compositor_dart/compositor_dart.dart';
 import 'package:compositor_dart/surface.dart';
 import 'package:flutter/material.dart';
 
