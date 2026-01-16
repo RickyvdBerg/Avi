@@ -59,6 +59,8 @@ class _DesktopState extends State<Desktop> {
   int? _draggingHandle;
   StreamSubscription<SurfacePositionEvent>? _positionSub;
   StreamSubscription<SurfaceGrabEndEvent>? _grabEndSub;
+  StreamSubscription<Surface>? _minimizeRequestSub;
+  StreamSubscription<SurfaceMaximizeEvent>? _maximizeRequestSub;
 
   static const shellEntry = WindowEntry(
     features: [],
@@ -120,17 +122,81 @@ class _DesktopState extends State<Desktop> {
 
     _positionSub = _windowService.surfacePositionChanged.listen(_onPositionChanged);
     _grabEndSub = _windowService.surfaceGrabEnded.listen(_onGrabEnded);
+    _minimizeRequestSub = Compositor.compositor.surfaceMinimizeRequested.stream.listen(_onMinimizeRequest);
+    _maximizeRequestSub = Compositor.compositor.surfaceMaximizeRequested.stream.listen(_onMaximizeRequest);
+  }
+
+  void _onMinimizeRequest(Surface surface) {
+    if (!mounted) return;
+    final int handle = surface.handle;
+    print("Desktop: handling minimize request for surface $handle");
+    _windowService.toggleMinimize(handle);
+  }
+
+  void _onMaximizeRequest(SurfaceMaximizeEvent event) {
+    if (!mounted) return;
+    final int handle = event.handle;
+    print("Desktop: handling maximize request for surface $handle, want maximized=${event.maximized}");
+
+    // Find the window entry for this surface
+    final entry = _windowService.windows.firstWhere(
+      (w) => w.surface.handle == handle,
+      orElse: () => throw StateError("No window for handle $handle"),
+    );
+
+    // Use the toggleMaximize logic
+    _toggleMaximizeForHandle(entry);
+  }
+
+  Future<void> _toggleMaximizeForHandle(CompositorWindowEntry entry) async {
+    final int handle = entry.surface.handle;
+    _windowService.setActive(handle);
+
+    // Get screen bounds from context
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final Size screenSize = renderBox.size;
+    final double bottomInset = WindowManagerService.current.controller.wmInsets.bottom;
+
+    if (entry.maximized) {
+      // Unmaximize - restore previous size
+      final Rect? restore = _restoreRects.remove(handle);
+      if (restore != null) {
+        final clampedRestore = Rect.fromLTWH(
+          restore.left.clamp(0.0, screenSize.width - 100),
+          restore.top.clamp(0.0, screenSize.height - 100),
+          restore.width.clamp(100.0, screenSize.width),
+          restore.height.clamp(100.0, screenSize.height - bottomInset),
+        );
+        _updateWindowPosition(handle, clampedRestore);
+      }
+      setState(() {});
+      await _windowService.toggleMaximize(entry.surface, false);
+    } else {
+      // Maximize
+      final Rect current = _surfaceRects[handle] ?? Rect.fromLTWH(48, 48, 960, 600);
+      _restoreRects[handle] = current;
+      final maximizedRect = Rect.fromLTWH(
+        0,
+        0,
+        screenSize.width,
+        math.max(0.0, screenSize.height - bottomInset),
+      );
+      _updateWindowPosition(handle, maximizedRect);
+      setState(() {});
+      await _windowService.toggleMaximize(entry.surface, true);
+    }
   }
 
   void _onPositionChanged(SurfacePositionEvent event) {
     if (!mounted) return;
     final int handle = event.handle;
-    
+
     // Ignore C position events when Dart is controlling this window via drag.
     // Dart is the source of truth during move/resize operations. C may send
     // stale or incorrect sizes (e.g., surface size without title bar).
     if (_draggingHandle == handle) return;
-    
+
     final Rect current = _surfaceRects[handle] ?? const Rect.fromLTWH(48, 48, 960, 600);
     final double width = event.width > 0 ? event.width.toDouble() : current.width;
     final double height = event.height > 0 ? event.height.toDouble() : current.height;
@@ -256,6 +322,8 @@ class _DesktopState extends State<Desktop> {
     _windowService.removeListener(_syncWindows);
     _positionSub?.cancel();
     _grabEndSub?.cancel();
+    _minimizeRequestSub?.cancel();
+    _maximizeRequestSub?.cancel();
     super.dispose();
   }
 
@@ -562,6 +630,43 @@ class _DesktopState extends State<Desktop> {
                       _surfaceRects[window.surface.handle] ??
                           const Rect.fromLTWH(48, 48, 960, 600),
                     );
+
+                    // Build the surface content
+                    final surfaceContent = CompositorSurfaceAutosizeWidget(
+                      surface: window.surface,
+                      child: SurfaceView(
+                        key: ValueKey('surface-${window.surface.handle}'),
+                        surface: window.surface,
+                      ),
+                    );
+
+                    final Widget windowWidget;
+                    if (window.surface.usesCsd) {
+                      // CSD app: Show as-is, the app handles its own decorations and shadows
+                      windowWidget = surfaceContent;
+                    } else {
+                      // SSD app: Full Pangolin decorations
+                      windowWidget = WindowDecoration(
+                        surface: window.surface,
+                        title: window.title,
+                        isActive: window.active,
+                        isMinimized: window.minimized,
+                        isMaximized: window.maximized,
+                        onActivate: () =>
+                            _windowService.setActive(window.surface.handle),
+                        onMoveStart: () => beginMoveSurface(window),
+                        onMove: (delta, globalPosition) => moveSurface(window, delta, globalPosition),
+                        onMoveEnd: (globalPosition) => onMoveEnd(window, globalPosition),
+                        onResizeStart: (edge) => beginResizeSurfaceFromDecoration(window, edge),
+                        onResize: (edge, delta) => resizeSurface(window, edge, delta),
+                        onMinimize: () =>
+                            _windowService.toggleMinimize(window.surface.handle),
+                        onMaximize: () => toggleMaximize(window),
+                        onClose: () => closeSurface(window),
+                        child: surfaceContent,
+                      );
+                    }
+
                     return AnimatedPositioned(
                       duration: const Duration(milliseconds: 16),
                       curve: Curves.linear,
@@ -569,36 +674,43 @@ class _DesktopState extends State<Desktop> {
                       top: rect.top,
                       width: rect.width,
                       height: rect.height,
-                      child: RepaintBoundary(
-                        child: WindowDecoration(
-                          surface: window.surface,
-                          title: window.title,
-                          isActive: window.active,
-                          isMinimized: window.minimized,
-                          isMaximized: window.maximized,
-                          onActivate: () =>
-                              _windowService.setActive(window.surface.handle),
-                          onMoveStart: () => beginMoveSurface(window),
-                          onMove: (delta, globalPosition) => moveSurface(window, delta, globalPosition),
-                          onMoveEnd: (globalPosition) => onMoveEnd(window, globalPosition),
-                          onResizeStart: (edge) => beginResizeSurfaceFromDecoration(window, edge),
-                          onResize: (edge, delta) => resizeSurface(window, edge, delta),
-                          onMinimize: () =>
-                              _windowService.toggleMinimize(window.surface.handle),
-                          onMaximize: () => toggleMaximize(window),
-                          onClose: () => closeSurface(window),
-                          child: CompositorSurfaceAutosizeWidget(
-                            surface: window.surface,
-                            child: SurfaceView(
-                              key: ValueKey('surface-${window.surface.handle}'),
-                              surface: window.surface,
-                            ),
-                          ),
-                        ),
-                      ),
+                      child: RepaintBoundary(child: windowWidget),
                     );
                   },
                 ),
+          // Render popups on top of all windows
+          ..._windowService.popups.map((popup) {
+            // Find parent window position
+            final parentWindow = windows.cast<CompositorWindowEntry?>().firstWhere(
+              (w) => w?.surface.handle == popup.parentHandle,
+              orElse: () => null,
+            );
+            if (parentWindow == null) {
+              print("Desktop: popup ${popup.handle} has no parent window (parent=${popup.parentHandle})");
+              return const SizedBox.shrink();
+            }
+
+            // Get parent window rect
+            final Rect parentRect = _surfaceRects[parentWindow.surface.handle] ?? Rect.zero;
+
+            // Calculate popup absolute position (parent position + popup offset)
+            // For SSD windows, add title bar height to Y offset
+            final double titleBarOffset = parentWindow.surface.usesCsd ? 0 : 38.0;
+            final double popupX = parentRect.left + popup.x;
+            final double popupY = parentRect.top + titleBarOffset + popup.y;
+
+            print("Desktop: rendering popup ${popup.handle} at ($popupX, $popupY) size ${popup.width}x${popup.height}, textureId=${popup.textureId}");
+
+            return Positioned(
+              left: popupX,
+              top: popupY,
+              width: popup.width.toDouble(),
+              height: popup.height.toDouble(),
+              child: RepaintBoundary(
+                child: PopupView(popup: popup),
+              ),
+            );
+          }),
           ],
         );
       },
