@@ -75,9 +75,6 @@ class WindowDecoration extends StatelessWidget {
     final hairline = 1.0 / (dpr <= 0 ? 1.0 : dpr);
     final radiusValue = isMaximized ? 0.0 : borderRadius;
     final radius = BorderRadius.circular(radiusValue);
-    // Keep the client content inset from the outer stroke so pixels line up.
-    // Use a device-pixel hairline inset (0 when maximized/fullscreen-like).
-    final contentInset = isMaximized ? 0.0 : hairline;
 
     return Stack(
       clipBehavior: Clip.none,
@@ -104,14 +101,18 @@ class WindowDecoration extends StatelessWidget {
                 ),
               ],
             ),
-            child: ClipRRect(
-              borderRadius: radius,
-              child: Stack(
-                children: [
-                  Column(
-                    children: [
-                      // Title bar
-                      _TitleBar(
+            // Use ClipRRect only for the title bar area, not the platform view content
+            child: Stack(
+              children: [
+                Column(
+                  children: [
+                    // Title bar - clip to rounded top corners
+                    ClipRRect(
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(radiusValue),
+                        topRight: Radius.circular(radiusValue),
+                      ),
+                      child: _TitleBar(
                         title: title,
                         isActive: isActive,
                         onClose: onClose,
@@ -122,64 +123,60 @@ class WindowDecoration extends StatelessWidget {
                         onDrag: onMove,
                         onDragEnd: onMoveEnd,
                       ),
-                      // Crisp separator line under title bar
-                      Container(
-                        height: hairline,
-                        color: Colors.black.withOpacity(isActive ? 0.10 : 0.08),
-                      ),
-                      // Content area - explicitly clip bottom corners for surface textures
-                      if (!isMinimized)
-                        Expanded(
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              contentInset,
-                              0,
-                              contentInset,
-                              contentInset,
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.only(
-                                bottomLeft: Radius.circular(radiusValue - contentInset),
-                                bottomRight: Radius.circular(radiusValue - contentInset),
-                              ),
-                              child: child,
-                            ),
+                    ),
+                    // Crisp separator line under title bar
+                    Container(
+                      height: hairline,
+                      color: Colors.black.withOpacity(isActive ? 0.10 : 0.08),
+                    ),
+                    // Content area with ClipRRect for rounded corners
+                    // ClipRRect sends kFlutterPlatformViewMutationTypeClipRoundedRect
+                    // which the C compositor uses for scanline-based rounded clipping
+                    if (!isMinimized)
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.only(
+                            bottomLeft: Radius.circular(radiusValue),
+                            bottomRight: Radius.circular(radiusValue),
                           ),
+                          child: child,
                         ),
-                    ],
+                      ),
+                  ],
+                ),
+                // Crisp outer stroke + inner highlight (macOS feel)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: radius,
+                        border: Border.all(
+                          width: hairline,
+                          color:
+                              Colors.black.withOpacity(isActive ? 0.22 : 0.18),
+                        ),
+                      ),
+                    ),
                   ),
-                  // Crisp outer stroke + inner highlight (macOS feel)
-                  Positioned.fill(
-                    child: IgnorePointer(
+                ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Padding(
+                      padding: EdgeInsets.all(hairline),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           borderRadius: radius,
                           border: Border.all(
                             width: hairline,
-                            color: Colors.black.withOpacity(isActive ? 0.22 : 0.18),
+                            color: Colors.white
+                                .withOpacity(isActive ? 0.20 : 0.12),
                           ),
                         ),
                       ),
                     ),
                   ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Padding(
-                        padding: EdgeInsets.all(hairline),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: radius,
-                            border: Border.all(
-                              width: hairline,
-                              color: Colors.white.withOpacity(isActive ? 0.20 : 0.12),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -480,6 +477,221 @@ class _ResizeHandle extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: const SizedBox.expand(),
       ),
+    );
+  }
+}
+
+/// Window frame for CSD (Client-Side Decoration) apps.
+///
+/// CSD apps render their own titlebar and window controls, so we only provide:
+/// - Consistent shadow styling (matching WindowDecoration)
+/// - Rounded corner clipping
+/// - Resize handles around the edges
+///
+/// The app's own titlebar handles move operations via the xdg_toplevel
+/// request_move protocol. This widget doesn't add any GestureDetectors
+/// that could interfere with pointer events reaching the surface.
+class CsdWindowFrame extends StatelessWidget {
+  final Surface surface;
+  final bool isActive;
+  final bool isMaximized;
+  final Widget child;
+  final VoidCallback? onActivate;
+  final void Function(ResizeEdge edge)? onResizeStart;
+  final void Function(ResizeEdge edge, Offset delta)? onResize;
+
+  static const double borderRadius = 12.0;
+  static const double resizeHitBox = 8.0;
+
+  const CsdWindowFrame({
+    super.key,
+    required this.surface,
+    required this.isActive,
+    this.isMaximized = false,
+    required this.child,
+    this.onActivate,
+    this.onResizeStart,
+    this.onResize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final hairline = 1.0 / (dpr <= 0 ? 1.0 : dpr);
+    final radiusValue = isMaximized ? 0.0 : borderRadius;
+    final radius = BorderRadius.circular(radiusValue);
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // Main frame with shadow and clipped content
+        RepaintBoundary(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              // macOS-like shadow stack: one soft ambient + one tighter contact.
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isActive ? 0.32 : 0.22),
+                  blurRadius: isActive ? 52 : 44,
+                  spreadRadius: isActive ? -12 : -14,
+                  offset: const Offset(0, 22),
+                ),
+                BoxShadow(
+                  color: Colors.black.withOpacity(isActive ? 0.16 : 0.12),
+                  blurRadius: isActive ? 18 : 14,
+                  spreadRadius: -7,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                // Clip content to rounded corners
+                ClipRRect(
+                  borderRadius: radius,
+                  child: child,
+                ),
+                // Crisp outer stroke + inner highlight (macOS feel)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: radius,
+                        border: Border.all(
+                          width: hairline,
+                          color: Colors.black.withOpacity(isActive ? 0.22 : 0.18),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Padding(
+                      padding: EdgeInsets.all(hairline),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: radius,
+                          border: Border.all(
+                            width: hairline,
+                            color: Colors.white.withOpacity(isActive ? 0.20 : 0.12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Resize handles (same as WindowDecoration)
+        if (!isMaximized) _buildResizeHandles(),
+      ],
+    );
+  }
+
+  Widget _buildResizeHandles() {
+    const double halfHit = resizeHitBox / 2;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // Top edge
+        Positioned(
+          top: -halfHit,
+          left: resizeHitBox,
+          right: resizeHitBox,
+          height: resizeHitBox,
+          child: _ResizeHandle(
+            edge: ResizeEdge.top,
+            onResizeStart: () => onResizeStart?.call(ResizeEdge.top),
+            onResize: onResize,
+          ),
+        ),
+        // Bottom edge
+        Positioned(
+          bottom: -halfHit,
+          left: resizeHitBox,
+          right: resizeHitBox,
+          height: resizeHitBox,
+          child: _ResizeHandle(
+            edge: ResizeEdge.bottom,
+            onResizeStart: () => onResizeStart?.call(ResizeEdge.bottom),
+            onResize: onResize,
+          ),
+        ),
+        // Left edge
+        Positioned(
+          left: -halfHit,
+          top: resizeHitBox,
+          bottom: resizeHitBox,
+          width: resizeHitBox,
+          child: _ResizeHandle(
+            edge: ResizeEdge.left,
+            onResizeStart: () => onResizeStart?.call(ResizeEdge.left),
+            onResize: onResize,
+          ),
+        ),
+        // Right edge
+        Positioned(
+          right: -halfHit,
+          top: resizeHitBox,
+          bottom: resizeHitBox,
+          width: resizeHitBox,
+          child: _ResizeHandle(
+            edge: ResizeEdge.right,
+            onResizeStart: () => onResizeStart?.call(ResizeEdge.right),
+            onResize: onResize,
+          ),
+        ),
+        // Corner handles
+        Positioned(
+          top: -halfHit,
+          left: -halfHit,
+          width: resizeHitBox * 2,
+          height: resizeHitBox * 2,
+          child: _ResizeHandle(
+            edge: ResizeEdge.topLeft,
+            onResizeStart: () => onResizeStart?.call(ResizeEdge.topLeft),
+            onResize: onResize,
+          ),
+        ),
+        Positioned(
+          top: -halfHit,
+          right: -halfHit,
+          width: resizeHitBox * 2,
+          height: resizeHitBox * 2,
+          child: _ResizeHandle(
+            edge: ResizeEdge.topRight,
+            onResizeStart: () => onResizeStart?.call(ResizeEdge.topRight),
+            onResize: onResize,
+          ),
+        ),
+        Positioned(
+          bottom: -halfHit,
+          left: -halfHit,
+          width: resizeHitBox * 2,
+          height: resizeHitBox * 2,
+          child: _ResizeHandle(
+            edge: ResizeEdge.bottomLeft,
+            onResizeStart: () => onResizeStart?.call(ResizeEdge.bottomLeft),
+            onResize: onResize,
+          ),
+        ),
+        Positioned(
+          bottom: -halfHit,
+          right: -halfHit,
+          width: resizeHitBox * 2,
+          height: resizeHitBox * 2,
+          child: _ResizeHandle(
+            edge: ResizeEdge.bottomRight,
+            onResizeStart: () => onResizeStart?.call(ResizeEdge.bottomRight),
+            onResize: onResize,
+          ),
+        ),
+      ],
     );
   }
 }

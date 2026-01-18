@@ -26,6 +26,8 @@ dependencies:
     sdk: flutter
   compositor_dart:
     path: ../flutter_wlroots/compositor_dart
+  avio_wm:
+    path: ../avio_wm
   gsettings: ^0.2.7
   http: ^1.1.0
   intl: ^0.20.0

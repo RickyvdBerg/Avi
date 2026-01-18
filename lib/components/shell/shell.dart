@@ -112,11 +112,17 @@ class ShellState extends State<Shell> with TickerProviderStateMixin {
             ],
           ),
           ...widget.overlays,
-          Positioned(
-            width: 420,
-            right: WindowHierarchy.of(context).wmInsets.right + 8,
-            bottom: WindowHierarchy.of(context).wmInsets.bottom + 8,
-            child: const NotificationQueue(),
+          Builder(
+            builder: (context) {
+              // Shell is already constrained to primary output, use relative coordinates
+              final double rightInset = WindowHierarchy.of(context).wmInsets.right;
+              return Positioned(
+                width: 420,
+                right: rightInset + 8,
+                bottom: WindowHierarchy.of(context).wmInsets.bottom + 8,
+                child: const NotificationQueue(),
+              );
+            },
           ),
         ],
       ),

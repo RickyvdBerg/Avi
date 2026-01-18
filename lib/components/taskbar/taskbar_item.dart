@@ -264,7 +264,12 @@ class _CompositorTaskbarItemState extends State<CompositorTaskbarItem>
   void didUpdateWidget(CompositorTaskbarItem oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (_overlayEntry != null) {
-      _overlayEntry!.markNeedsBuild();
+      // Schedule after frame to avoid calling during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_overlayEntry != null && mounted) {
+          _overlayEntry!.markNeedsBuild();
+        }
+      });
     }
   }
 

@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import 'dart:async';
+
+import 'package:compositor_dart/compositor_dart.dart';
 import 'package:dahlia_shared/dahlia_shared.dart';
 import 'package:flutter/material.dart';
 import 'package:pangolin/widgets/acrylic/acrylic.dart';
@@ -40,8 +43,36 @@ class Taskbar extends StatefulWidget {
 
 class _TaskbarState extends State<Taskbar>
     with StateServiceListener<CustomizationService, Taskbar> {
+  StreamSubscription<DisplayOutput>? _outputAddedSub;
+  StreamSubscription<int>? _outputRemovedSub;
+  StreamSubscription<DisplayOutput>? _outputChangedSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Subscribe to output changes to reposition taskbar
+    _outputAddedSub = Compositor.compositor.outputAdded.stream.listen((_) {
+      if (mounted) setState(() {});
+    });
+    _outputRemovedSub = Compositor.compositor.outputRemoved.stream.listen((_) {
+      if (mounted) setState(() {});
+    });
+    _outputChangedSub = Compositor.compositor.outputChanged.stream.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _outputAddedSub?.cancel();
+    _outputRemovedSub?.cancel();
+    _outputChangedSub?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget buildChild(BuildContext context, CustomizationService service) {
+    // Shell is already positioned at primary output, use relative coordinates
     return Positioned(
       left: 0,
       right: 0,

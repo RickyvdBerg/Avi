@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:dahlia_shared/dahlia_shared.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:pangolin/components/shell/shell.dart';
+import 'package:pangolin/utils/data/globals.dart';
+import 'package:pangolin/widgets/surface/surface_layer.dart';
 
 class ShellServiceFactory extends ServiceFactory<ShellService> {
   const ShellServiceFactory();
@@ -217,12 +219,15 @@ abstract class ShellOverlayState<T extends ShellOverlay> extends State<T>
   void initState() {
     controller._overlay = this;
     controller.showingNotifier.addListener(_showListener);
+    // Ensure rebuild when animation completes dismissal
+    animationController.addStatusListener(_animationStatusListener);
     super.initState();
   }
 
   @override
   void dispose() {
     controller.showingNotifier.removeListener(_showListener);
+    animationController.removeStatusListener(_animationStatusListener);
     animationController.dispose();
     super.dispose();
   }
@@ -235,5 +240,111 @@ abstract class ShellOverlayState<T extends ShellOverlay> extends State<T>
     setState(() {});
   }
 
+  void _animationStatusListener(AnimationStatus status) {
+    // Force rebuild when animation completes to ensure shouldHide is evaluated
+    if (status == AnimationStatus.dismissed || status == AnimationStatus.completed) {
+      if (mounted) setState(() {});
+    }
+  }
+
   bool get shouldHide => !controller.showing && animationController.value == 0;
+
+  /// Standard implementation for showing overlay with animation.
+  /// Subclasses can override requestShow and call this, or implement their own.
+  void showWithAnimation() {
+    controller.showing = true;
+    animationController.forward();
+  }
+
+  /// Standard implementation for dismissing overlay with animation.
+  /// Subclasses can override requestDismiss and call this, or implement their own.
+  void dismissWithAnimation() {
+    animationController.reverse();
+    controller.showing = false;
+  }
+}
+
+/// A scaffold widget for dismissible overlays that handles:
+/// - Background tap-to-dismiss
+/// - Proper hit testing (clicks on content don't dismiss)
+/// - Fade and scale animations
+/// - Automatic hiding when shouldHide is true
+///
+/// Usage:
+/// ```dart
+/// @override
+/// Widget build(BuildContext context) {
+///   return DismissibleOverlayScaffold(
+///     shouldHide: shouldHide,
+///     animation: animation,
+///     onDismiss: () => controller.requestDismiss({}),
+///     width: 600,
+///     height: 500,
+///     child: _buildContent(context),
+///   );
+/// }
+/// ```
+class DismissibleOverlayScaffold extends StatelessWidget {
+  final bool shouldHide;
+  final Animation<double> animation;
+  final VoidCallback onDismiss;
+  final double width;
+  final double height;
+  final Widget child;
+  final OutlinedBorder? shape;
+
+  const DismissibleOverlayScaffold({
+    super.key,
+    required this.shouldHide,
+    required this.animation,
+    required this.onDismiss,
+    required this.width,
+    required this.height,
+    required this.child,
+    this.shape,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (shouldHide) return const SizedBox();
+
+    return Stack(
+      children: [
+        // Background tap-to-dismiss
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: onDismiss,
+            child: const ColoredBox(color: Colors.transparent),
+          ),
+        ),
+        // Centered content
+        Positioned(
+          left: horizontalPadding(context, width),
+          right: horizontalPadding(context, width),
+          top: verticalPadding(context, height),
+          bottom: verticalPadding(context, height),
+          child: FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: animation,
+              alignment: FractionalOffset.center,
+              child: GestureDetector(
+                // Absorb taps on content to prevent dismiss
+                onTap: () {},
+                child: SurfaceLayer(
+                  outline: true,
+                  shape: shape ?? Constants.bigShape,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: child,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }

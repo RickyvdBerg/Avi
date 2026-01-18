@@ -22,6 +22,7 @@ import 'package:dahlia_shared/dahlia_shared.dart';
 import 'package:flutter/material.dart';
 import 'package:pangolin/components/overlays/account_overlay.dart';
 import 'package:pangolin/components/overlays/power_overlay.dart';
+import 'package:pangolin/components/overlays/settings/display_settings_overlay.dart';
 import 'package:pangolin/services/application.dart';
 import 'package:pangolin/services/shell.dart';
 
@@ -53,6 +54,15 @@ class ActionManager {
     ApplicationService.current.startApp("io.dahlia.settings");
   }
 
+  static Future<void> showDisplaySettings(BuildContext context) async {
+    _shell.dismissEverything();
+    await Future.delayed(Constants.animationDuration);
+    _shell.showOverlay(
+      DisplaySettingsOverlay.overlayId,
+      dismissEverything: false,
+    );
+  }
+
   static void powerOff() {
     if (Platform.isLinux) {
       Process.run("poweroff", []);
@@ -73,5 +83,9 @@ class ActionManager {
 
   static void lock() {}
 
-  static void logout() {}
+  static void logout() {
+    if (Platform.isLinux) {
+      exit(0);
+    }
+  }
 }

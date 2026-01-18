@@ -71,38 +71,38 @@ class _PowerOverlayState extends ShellOverlayState<PowerOverlay> {
               child: SurfaceLayer(
                 outline: true,
                 shape: Constants.bigShape,
-                child: Material(
-                  type: MaterialType.transparency,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 328,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surface,
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(24.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  strings.powerOverlay.title,
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+              child: Material(
+                type: MaterialType.transparency,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 328,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                strings.powerOverlay.title,
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                const SizedBox(height: 12),
-                                Text(strings.powerOverlay.subtitle),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(strings.powerOverlay.subtitle),
+                            ],
                           ),
                         ),
                       ),
-                      const Spacer(),
-                      Padding(
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           children: [
@@ -124,12 +124,19 @@ class _PowerOverlayState extends ShellOverlayState<PowerOverlay> {
                               context: context,
                               onPressed: ActionManager.reboot,
                             ),
+                            PowerAccountMenuButton(
+                              title: "Logout",
+                              icon: Icons.logout_rounded,
+                              context: context,
+                              onPressed: ActionManager.logout,
+                            ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
               ),
             ),
           ),

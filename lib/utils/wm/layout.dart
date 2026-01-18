@@ -1,4 +1,5 @@
 import 'package:collection/collection.dart';
+import 'package:compositor_dart/compositor_dart.dart';
 import 'package:flutter/material.dart';
 import 'package:pangolin/components/shell/effects.dart';
 import 'package:pangolin/utils/wm/wm.dart';
@@ -46,16 +47,45 @@ class PangolinLayoutDelegate extends LayoutDelegate<FreeformLayoutInfo> {
           ),
         );
       } else {
-        children.add(
-          Positioned.fill(
-            child: LayoutBuilder(
-              builder: (context, constraints) => MediaQuery(
-                data: MediaQueryData(size: constraints.biggest),
+        // Shell: constrain to primary output if available, otherwise fill
+        final primary = Compositor.compositor.primaryOutput;
+        if (primary != null) {
+          // Multi-monitor: constrain shell to primary output only
+          final double shellLeft = primary.x.toDouble();
+          final double shellTop = primary.y.toDouble();
+          final double shellWidth = primary.width.toDouble();
+          final double shellHeight = primary.height.toDouble();
+
+          children.add(
+            Positioned(
+              left: shellLeft,
+              top: shellTop,
+              width: shellWidth,
+              height: shellHeight,
+              child: MediaQuery(
+                data: MediaQueryData(size: Size(shellWidth, shellHeight)),
                 child: entry.view,
               ),
             ),
-          ),
-        );
+          );
+        } else {
+          // No outputs registered yet (race condition) or nested mode.
+          // Use Positioned.fill + LayoutBuilder to adapt to actual available space.
+          // This ensures shell scales with the window in nested mode, and when
+          // outputs become available, Desktop will rebuild via output listener.
+          children.add(
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) => MediaQuery(
+                  data: MediaQueryData(
+                    size: Size(constraints.maxWidth, constraints.maxHeight),
+                  ),
+                  child: entry.view,
+                ),
+              ),
+            ),
+          );
+        }
       }
     }
 

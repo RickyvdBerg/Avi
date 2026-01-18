@@ -63,6 +63,38 @@ class _LinuxApplicationService extends ApplicationService {
       ...Platform.environment,
     };
 
+    // === Wayland environment hints for proper app behavior ===
+    // These ensure apps use Wayland and respect server-side decorations
+    // Set these ALWAYS, not just when compositor check succeeds
+
+    // Firefox/Mozilla
+    environment.putIfAbsent("MOZ_ENABLE_WAYLAND", () => "1");
+    environment.putIfAbsent("MOZ_GTK_TITLEBAR_DECORATION", () => "system");
+    environment.putIfAbsent("MOZ_DBUS_REMOTE", () => "0");
+
+    // GTK
+    environment.putIfAbsent("GDK_BACKEND", () => "wayland");
+    environment.putIfAbsent("LIBDECOR_FORCE_SERVER_SIDE", () => "1");
+    environment.putIfAbsent("GTK_CSD", () => "0");
+    environment.putIfAbsent("XDG_CURRENT_DESKTOP", () => "Pangolin");
+
+    // Qt
+    environment.putIfAbsent("QT_QPA_PLATFORM", () => "wayland");
+    environment.putIfAbsent("QT_WAYLAND_DISABLE_WINDOWDECORATION", () => "1");
+
+    // Electron/Chromium
+    environment.putIfAbsent("ELECTRON_OZONE_PLATFORM_HINT", () => "wayland");
+    environment.putIfAbsent("NIXOS_OZONE_WL", () => "1");
+
+    // SDL
+    environment.putIfAbsent("SDL_VIDEODRIVER", () => "wayland");
+
+    // GNOME/Clutter
+    environment.putIfAbsent("CLUTTER_BACKEND", () => "wayland");
+
+    // Java
+    environment.putIfAbsent("_JAVA_AWT_WM_NONREPARENTING", () => "1");
+
     try {
       final bool isCompositor =
           await Compositor.compositor.isCompositor();

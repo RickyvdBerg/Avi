@@ -206,8 +206,9 @@ class _QsMainState extends State<QsMain>
       color: Colors.transparent,
       child: Align(
         alignment: Alignment.topLeft,
-        child: Column(
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: qsActionButton,
@@ -323,6 +324,23 @@ class _QsMainState extends State<QsMain>
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    QsToggleButton(
+                      title: const ToggleProperty.singleState("Display"),
+                      icon: const ToggleProperty.singleState(
+                        Icons.monitor_rounded,
+                      ),
+                      enabled: true,
+                      onPressed: (_) =>
+                          ActionManager.showDisplaySettings(context),
+                    ),
+                    const SizedBox(width: 156),
+                    const SizedBox(width: 156),
+                  ],
+                ),
               ],
             ),
             ListenableServiceBuilder<TrayService>(
@@ -427,6 +445,7 @@ class _QsMainState extends State<QsMain>
               ],
             ),
           ],
+          ),
         ),
       ),
     );

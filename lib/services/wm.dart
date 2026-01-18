@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:avio_wm/avio_wm.dart' as avio;
 import 'package:compositor_dart/compositor_dart.dart';
 import 'package:dahlia_shared/dahlia_shared.dart';
 import 'package:utopia_wm/wm.dart';
@@ -100,6 +101,8 @@ class _WindowManagerServiceImpl extends WindowManagerService {
   }
 }
 
+/// Simple container for taskbar/UI compatibility.
+/// Maps WindowEntry to the old CompositorWindowEntry interface.
 class CompositorWindowEntry {
   final Surface surface;
   final String title;
@@ -118,19 +121,47 @@ class CompositorWindowEntry {
     required this.active,
     required this.zIndex,
   });
+
+  /// Create from an avio WindowEntry.
+  factory CompositorWindowEntry.fromWindowEntry(
+    avio.WindowEntry entry,
+    int zIndex,
+    bool active,
+  ) {
+    return CompositorWindowEntry(
+      surface: entry.surface,
+      title: entry.title,
+      appId: entry.appId,
+      minimized: entry.minimized,
+      maximized: entry.isMaximized,
+      active: active,
+      zIndex: zIndex,
+    );
+  }
 }
 
+/// Abstract interface for compositor window management.
+/// Used by taskbar and other UI components.
 abstract class CompositorWindowService extends ListenableService {
   static CompositorWindowService get current {
     return ServiceManager.getService<CompositorWindowService>()!;
   }
 
+  /// The underlying window manager.
+  avio.WindowManager get windowManager;
+
   /// Windows in stable taskbar order (order they were opened)
   List<CompositorWindowEntry> get windows;
-  
+
   /// Windows in z-order (back to front, last = topmost)
   List<CompositorWindowEntry> get windowsByZOrder;
-  
+
+  /// Active popups (menus, dropdowns, tooltips)
+  List<Popup> get popups;
+
+  /// Get popups for a specific parent surface handle
+  List<Popup> getPopupsForSurface(int parentHandle);
+
   bool isMinimized(int handle);
   bool isMaximized(int handle);
   int? get activeHandle;
@@ -139,208 +170,103 @@ abstract class CompositorWindowService extends ListenableService {
   void toggleMinimize(int handle);
   Future<void> toggleMaximize(Surface surface, bool maximized);
   Future<void> close(Surface surface);
-  
-  Future<void> beginMove(Surface surface);
-  Future<void> beginResize(Surface surface, int edges);
-  Future<void> setWindowPosition(Surface surface, int x, int y);
-  
-  Stream<SurfacePositionEvent> get surfacePositionChanged;
-  Stream<SurfaceGrabEndEvent> get surfaceGrabEnded;
+
+  // NOTE: beginMove, beginResize, and setWindowPosition have been removed.
+  // Move/resize is fully Dart-controlled via WindowManager in avio_wm.
+  // UI components call WindowManager methods directly via WindowLayer/WindowFrame.
 }
 
+/// Implementation that wraps WindowManager from avio_wm.
 class _CompositorWindowServiceImpl extends CompositorWindowService {
-  final Compositor _compositor = Compositor.compositor;
-  final Map<int, Surface> _surfaces = {};
-  final Map<int, String> _titles = {};
-  final Set<int> _minimized = {};
-  final Set<int> _maximized = {};
-  
-  /// Stable order for taskbar display (order windows were created)
-  final List<int> _taskbarOrder = [];
-  
-  /// Z-order for stacking (last = topmost/focused)
-  final List<int> _zOrder = [];
-  
-  StreamSubscription<Surface>? _surfaceMappedSub;
-  StreamSubscription<Surface>? _surfaceUnmappedSub;
-  StreamSubscription<Surface>? _surfaceUpdatedSub;
-
-  int? _activeHandle;
+  avio.WindowManager? _windowManager;
 
   @override
-  int? get activeHandle => _activeHandle;
+  avio.WindowManager get windowManager {
+    if (_windowManager == null) {
+      throw StateError('CompositorWindowService not started');
+    }
+    return _windowManager!;
+  }
 
   @override
   List<CompositorWindowEntry> get windows {
-    // Return windows in stable taskbar order
-    return _taskbarOrder
-        .where(_surfaces.containsKey)
-        .map((handle) => _createEntry(handle))
-        .toList(growable: false);
+    if (_windowManager == null) return [];
+    final wm = _windowManager!;
+    return wm.windows
+        .map((entry) => CompositorWindowEntry.fromWindowEntry(
+              entry,
+              wm.zIndexOf(entry.handle),
+              entry.handle == wm.activeHandle,
+            ))
+        .toList();
   }
 
   @override
   List<CompositorWindowEntry> get windowsByZOrder {
-    // Return windows in z-order (for rendering)
-    return _zOrder
-        .where(_surfaces.containsKey)
-        .map((handle) => _createEntry(handle))
-        .toList(growable: false);
-  }
-
-  CompositorWindowEntry _createEntry(int handle) {
-    return CompositorWindowEntry(
-      surface: _surfaces[handle]!,
-      title: _titles[handle] ?? 'Application $handle',
-      appId: _surfaces[handle]!.appId,
-      minimized: _minimized.contains(handle),
-      maximized: _maximized.contains(handle),
-      active: handle == _activeHandle,
-      zIndex: _zOrder.indexOf(handle),
-    );
+    if (_windowManager == null) return [];
+    final wm = _windowManager!;
+    return wm.windowsByZOrder
+        .map((entry) => CompositorWindowEntry.fromWindowEntry(
+              entry,
+              wm.zIndexOf(entry.handle),
+              entry.handle == wm.activeHandle,
+            ))
+        .toList();
   }
 
   @override
-  bool isMinimized(int handle) => _minimized.contains(handle);
+  List<Popup> get popups {
+    return _windowManager?.popups ?? [];
+  }
 
   @override
-  bool isMaximized(int handle) => _maximized.contains(handle);
+  List<Popup> getPopupsForSurface(int parentHandle) {
+    return _windowManager?.getPopupsForSurface(parentHandle) ?? [];
+  }
+
+  @override
+  bool isMinimized(int handle) => _windowManager?.isMinimized(handle) ?? false;
+
+  @override
+  bool isMaximized(int handle) => _windowManager?.isMaximized(handle) ?? false;
+
+  @override
+  int? get activeHandle => _windowManager?.activeHandle;
 
   @override
   void start() {
-    _initCompositor();
+    _windowManager = avio.WindowManager(
+      bridge: avio.PlatformCompositorBridge(),
+      config: const avio.WmConfig(),
+    );
+    // Forward change notifications
+    _windowManager!.addListener(notifyListeners);
   }
 
   @override
-  FutureOr<void> stop() {
-    _surfaceMappedSub?.cancel();
-    _surfaceUnmappedSub?.cancel();
-    _surfaceUpdatedSub?.cancel();
-    _surfaces.clear();
-    _titles.clear();
-    _minimized.clear();
-    _maximized.clear();
-    _taskbarOrder.clear();
-    _zOrder.clear();
-  }
-
-  Future<void> _initCompositor() async {
-    final bool isCompositor = await _compositor.isCompositor();
-    if (!isCompositor) return;
-
-    _surfaceMappedSub = _compositor.surfaceMapped.stream.listen((surface) {
-      _surfaces[surface.handle] = surface;
-      _titles[surface.handle] = _resolveTitle(surface);
-      _taskbarOrder.add(surface.handle);
-      _zOrder.add(surface.handle);
-      _activeHandle = surface.handle;
-      notifyListeners();
-    });
-
-    _surfaceUnmappedSub = _compositor.surfaceUnmapped.stream.listen((surface) {
-      _surfaces.remove(surface.handle);
-      _titles.remove(surface.handle);
-      _minimized.remove(surface.handle);
-      _maximized.remove(surface.handle);
-      _taskbarOrder.remove(surface.handle);
-      _zOrder.remove(surface.handle);
-      if (_activeHandle == surface.handle) {
-        // Activate the next topmost non-minimized window
-        _activeHandle = _zOrder.reversed
-            .firstWhere((h) => !_minimized.contains(h), orElse: () => -1);
-        if (_activeHandle == -1) _activeHandle = null;
-      }
-      notifyListeners();
-    });
-
-    _surfaceUpdatedSub = _compositor.surfaceUpdated.stream.listen((surface) {
-      _titles[surface.handle] = _resolveTitle(surface);
-      notifyListeners();
-    });
-  }
-
-  String _resolveTitle(Surface surface) {
-    final String? title = surface.title?.trim();
-    if (title != null && title.isNotEmpty) return title;
-    final String? appId = surface.appId?.trim();
-    if (appId != null && appId.isNotEmpty) return appId;
-    return 'Application ${surface.handle}';
+  Future<void> stop() async {
+    _windowManager?.removeListener(notifyListeners);
+    _windowManager?.dispose();
+    _windowManager = null;
   }
 
   @override
   void setActive(int handle) {
-    if (!_surfaces.containsKey(handle)) return;
-    _activeHandle = handle;
-    // Only update z-order, NOT taskbar order
-    _zOrder.remove(handle);
-    _zOrder.add(handle);
-    _minimized.remove(handle);
-    unawaited(_compositor.platform.surfaceFocus(_surfaces[handle]!));
-    notifyListeners();
+    _windowManager?.activate(handle);
   }
 
   @override
   void toggleMinimize(int handle) {
-    if (!_surfaces.containsKey(handle)) return;
-    if (_minimized.contains(handle)) {
-      _minimized.remove(handle);
-      _activeHandle = handle;
-      // Bring to front in z-order
-      _zOrder.remove(handle);
-      _zOrder.add(handle);
-    } else {
-      _minimized.add(handle);
-      if (_activeHandle == handle) {
-        // Find next non-minimized window by z-order
-        _activeHandle = _zOrder.reversed
-            .firstWhere((h) => !_minimized.contains(h), orElse: () => -1);
-        if (_activeHandle == -1) _activeHandle = null;
-      }
-    }
-    notifyListeners();
+    _windowManager?.toggleMinimize(handle);
   }
 
   @override
   Future<void> toggleMaximize(Surface surface, bool maximized) async {
-    if (!_surfaces.containsKey(surface.handle)) return;
-    if (maximized) {
-      _maximized.add(surface.handle);
-    } else {
-      _maximized.remove(surface.handle);
-    }
-    await _compositor.platform.surfaceToplevelSetMaximized(surface, maximized);
-    notifyListeners();
+    await _windowManager?.toggleMaximize(surface.handle);
   }
 
   @override
   Future<void> close(Surface surface) async {
-    if (!_surfaces.containsKey(surface.handle)) return;
-    await _compositor.platform.surfaceToplevelClose(surface);
+    await _windowManager?.close(surface.handle);
   }
-
-  @override
-  Future<void> beginMove(Surface surface) async {
-    if (!_surfaces.containsKey(surface.handle)) return;
-    await _compositor.platform.surfaceBeginMove(surface);
-  }
-
-  @override
-  Future<void> beginResize(Surface surface, int edges) async {
-    if (!_surfaces.containsKey(surface.handle)) return;
-    await _compositor.platform.surfaceBeginResize(surface, edges);
-  }
-
-  @override
-  Future<void> setWindowPosition(Surface surface, int x, int y) async {
-    if (!_surfaces.containsKey(surface.handle)) return;
-    await _compositor.platform.surfaceSetPosition(surface, x, y);
-  }
-
-  @override
-  Stream<SurfacePositionEvent> get surfacePositionChanged =>
-      _compositor.surfacePositionChanged.stream;
-
-  @override
-  Stream<SurfaceGrabEndEvent> get surfaceGrabEnded =>
-      _compositor.surfaceGrabEnded.stream;
 }

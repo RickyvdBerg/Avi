@@ -73,10 +73,10 @@ String pangolinCommit = "220222-dahliaOS_linux";
 String fullPangolinVersion = pangolinCommit;
 
 double horizontalPadding(BuildContext context, double size) =>
-    WindowHierarchy.of(context).wmBounds.width / 2 - size / 2;
+    MediaQuery.of(context).size.width / 2 - size / 2;
 
 double verticalPadding(BuildContext context, double size) =>
-    WindowHierarchy.of(context).wmBounds.height / 2 - size / 3.5;
+    MediaQuery.of(context).size.height / 2 - size / 3.5;
 
 List<String> timeZones = [];
 
